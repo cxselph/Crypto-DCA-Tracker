@@ -32,6 +32,9 @@ store.json.tmp
 # Local session notes (not for GitHub)
 DEV_NOTES.md
 
+# Retired/superseded files kept for local reference only
+archive/
+
 # Logs and caches
 *.log
 __pycache__/

@@ -640,6 +640,7 @@ async function detectBackend() {
   } catch (e) {
     backendAvailable = false;
   }
+  if (backendAvailable) await syncStoreFromBackend();
 }
 
 async function backupViaBackend(csv, filename) {
@@ -706,14 +707,68 @@ function loadStore() {
 function saveStore() {
   if (!storageAvailable) {
     memoryStore = store;
-    return;
+  } else {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    } catch (e) {
+      console.error('Failed to save store', e);
+      storageAvailable = false;
+      memoryStore = store;
+    }
   }
+  persistToBackend();
+}
+
+// The browser's own storage (localStorage) isn't reliably durable inside the
+// native app window (WKWebView can drop it across relaunches), so whenever a
+// backend is available we also write straight to store.json on disk, which is
+// the actual source of truth on the next load. See syncStoreFromBackend().
+let backendPersistFailWarned = false;
+function persistToBackend() {
+  if (!backendAvailable) return;
+  fetch('/api/store', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(store),
+  }).then(res => {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    backendPersistFailWarned = false;
+  }).catch(err => {
+    console.error('Failed to persist store to disk', err);
+    if (!backendPersistFailWarned) {
+      backendPersistFailWarned = true;
+      toast('Could not save to disk — your latest changes may not survive closing the app.', 'error');
+    }
+  });
+}
+
+// On boot, pull the durable on-disk copy (if a backend is available) so the
+// app never opens showing stale/lost data from browser storage alone.
+// If the disk copy is empty but the browser already has data (e.g. the very
+// first run after this feature shipped, or a fresh browser-storage profile),
+// seed the disk copy from the browser instead of wiping it out.
+async function syncStoreFromBackend() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    const res = await fetch('/api/store', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || typeof data !== 'object') return;
+    const backendEmpty = !(data.ledger && data.ledger.length) && !(data.tokens && Object.keys(data.tokens).length);
+    const localHasData = store.ledger && store.ledger.length > 0;
+    if (backendEmpty && localHasData) {
+      saveStore(); // seed store.json from the browser's existing data
+      return;
+    }
+    store = {
+      tokens: data.tokens || {},
+      ledger: data.ledger || [],
+      snapshots: data.snapshots || [],
+    };
+    saveStore();
+    renderAll();
+    refreshAllPrices();
   } catch (e) {
-    console.error('Failed to save store', e);
-    storageAvailable = false;
-    memoryStore = store;
+    console.warn('Could not sync store from backend', e);
   }
 }
 
@@ -1739,8 +1794,16 @@ function computePortfolioValue() {
   return total;
 }
 
+// Snapshot retention: keep entries from the last 90 days at most, cap total at 200.
+const SNAPSHOT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const SNAPSHOT_MAX_COUNT = 200;
+
+function trimSnapshots(snapshots) {
+  const cutoff = Date.now() - SNAPSHOT_RETENTION_MS;
+  return snapshots.filter(s => new Date(s.ts).getTime() >= cutoff).slice(-SNAPSHOT_MAX_COUNT);
+}
+
 // Add a portfolio snapshot if the last one is >4 hours old and we have live-priced data.
-// Keeps the array trimmed to the last 100 entries (~roughly 100 days at one per day).
 function captureSnapshotIfDue() {
   const value = computePortfolioValue();
   if (!(value > 0)) return;
@@ -1750,10 +1813,19 @@ function captureSnapshotIfDue() {
   const FOUR_HOURS = 4 * 60 * 60 * 1000;
   if (last && (now.getTime() - new Date(last.ts).getTime()) < FOUR_HOURS) return;
   snapshots.push({ ts: now.toISOString(), value });
-  // Trim: keep entries from the last 90 days at most, cap total at 200.
-  const cutoff = now.getTime() - 90 * 24 * 60 * 60 * 1000;
-  store.snapshots = snapshots.filter(s => new Date(s.ts).getTime() >= cutoff).slice(-200);
+  store.snapshots = trimSnapshots(snapshots);
   saveStore();
+}
+
+// Merge imported/restored snapshots into the store, deduped by timestamp.
+function mergeSnapshots(incoming) {
+  if (!incoming || !incoming.length) return 0;
+  const existing = store.snapshots || (store.snapshots = []);
+  const byTs = new Map(existing.map(s => [s.ts, s]));
+  for (const s of incoming) byTs.set(s.ts, s);
+  const merged = [...byTs.values()].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  store.snapshots = trimSnapshots(merged);
+  return incoming.length;
 }
 
 // Find the snapshot whose age is closest to targetAgeMs, within toleranceMs of that target.
@@ -2304,7 +2376,9 @@ function parseCsv(text) {
 }
 
 function importCsvFromText(text) {
-  const rows = parseCsv(text);
+  const { ledgerText, snapshotsText } = splitBackupSections(text);
+  const incomingSnapshots = snapshotsText ? parseSnapshotsCsv(snapshotsText) : [];
+  const rows = parseCsv(ledgerText);
   if (rows.length < 2) throw new Error('CSV has no data rows.');
   const header = rows[0].map(h => h.trim());
   const idx = {
@@ -2377,39 +2451,49 @@ function importCsvFromText(text) {
     }
   }
 
-  if (entries.length === 0) throw new Error('No valid rows found.');
+  if (entries.length === 0 && incomingSnapshots.length === 0) throw new Error('No valid rows found.');
 
-  let mode = 'append';
-  if (store.ledger.length > 0) {
-    const append = confirm(
-      `Found ${entries.length} valid entr${entries.length === 1 ? 'y' : 'ies'} to import` +
-      (skipped > 0 ? ` (${skipped} skipped due to missing/invalid fields)` : '') +
-      `.\n\nOK = APPEND to your existing ${store.ledger.length} entr${store.ledger.length === 1 ? 'y' : 'ies'}.\nCancel = REPLACE existing ledger.`
-    );
-    if (!append) {
-      if (!confirm(`Are you sure you want to REPLACE all ${store.ledger.length} existing entries? This cannot be undone.`)) return;
-      mode = 'replace';
+  let newSymbols = [], linkedCount = 0, unlinked = [];
+  if (entries.length > 0) {
+    let mode = 'append';
+    if (store.ledger.length > 0) {
+      const append = confirm(
+        `Found ${entries.length} valid entr${entries.length === 1 ? 'y' : 'ies'} to import` +
+        (skipped > 0 ? ` (${skipped} skipped due to missing/invalid fields)` : '') +
+        `.\n\nOK = APPEND to your existing ${store.ledger.length} entr${store.ledger.length === 1 ? 'y' : 'ies'}.\nCancel = REPLACE existing ledger.`
+      );
+      if (!append) {
+        if (!confirm(`Are you sure you want to REPLACE all ${store.ledger.length} existing entries? This cannot be undone.`)) return;
+        mode = 'replace';
+      }
     }
+
+    if (mode === 'replace') {
+      store.ledger = entries;
+      store.tokens = { ...importedTokens };
+    } else {
+      store.ledger.push(...entries);
+      // Append mode: only add mappings for symbols that don't already have one (don't overwrite user's existing links)
+      for (const [sym, link] of Object.entries(importedTokens)) {
+        if (!store.tokens[sym]) store.tokens[sym] = link;
+      }
+    }
+
+    newSymbols = [...new Set(entries.map(e => e.symbol))];
+    linkedCount = newSymbols.filter(s => store.tokens[s]).length;
+    unlinked = newSymbols.filter(s => !store.tokens[s]);
   }
 
-  if (mode === 'replace') {
-    store.ledger = entries;
-    store.tokens = { ...importedTokens };
-  } else {
-    store.ledger.push(...entries);
-    // Append mode: only add mappings for symbols that don't already have one (don't overwrite user's existing links)
-    for (const [sym, link] of Object.entries(importedTokens)) {
-      if (!store.tokens[sym]) store.tokens[sym] = link;
-    }
-  }
+  // Snapshot history (24h/7d/30d pills) is merged regardless of ledger append/replace mode.
+  const restoredSnapshots = mergeSnapshots(incomingSnapshots);
   saveStore();
 
-  const newSymbols = [...new Set(entries.map(e => e.symbol))];
-  const linkedCount = newSymbols.filter(s => store.tokens[s]).length;
-  const unlinked = newSymbols.filter(s => !store.tokens[s]);
-  let msg = `Restored ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}. ${linkedCount} symbol${linkedCount === 1 ? '' : 's'} linked.`;
+  let msg = entries.length > 0
+    ? `Restored ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}. ${linkedCount} symbol${linkedCount === 1 ? '' : 's'} linked.`
+    : '';
   if (unlinked.length > 0) msg += ` ${unlinked.length} still need${unlinked.length === 1 ? 's' : ''} linking.`;
-  toast(msg, 'success');
+  if (restoredSnapshots > 0) msg += `${msg ? ' ' : ''}Restored ${restoredSnapshots} portfolio price-history point${restoredSnapshots === 1 ? '' : 's'} (24h/7d/30d pills).`;
+  toast(msg || 'Nothing to restore.', 'success');
   renderAll();
   refreshAllPrices();
 }
@@ -2643,12 +2727,46 @@ function buildBackupCsv() {
         e.symbolB || '', e.quantityB || 0, e.priceB || 0, (e.pairLabel || '').replace(/"/g, '""'),
       ];
     });
-  const csv = [header.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
+  let csv = [header.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
+  csv += '\n\n' + buildSnapshotsSection();
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
   const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
   const filename = `dca-backup-${stamp}.csv`;
   return { csv, filename };
+}
+
+// Portfolio-value history (for the 24h/7d/30d header pills), tacked onto the
+// ledger CSV as a second table so one backup file restores both.
+const SNAPSHOTS_MARKER = '# snapshots (24h/7d/30d pill history — safe to ignore elsewhere)';
+
+function buildSnapshotsSection() {
+  const snaps = (store.snapshots || []).slice().sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  const rows = snaps.map(s => `${s.ts},${s.value}`);
+  return [SNAPSHOTS_MARKER, 'ts,value', ...rows].join('\n');
+}
+
+function splitBackupSections(text) {
+  const idx = text.indexOf(SNAPSHOTS_MARKER);
+  if (idx === -1) return { ledgerText: text, snapshotsText: '' };
+  return { ledgerText: text.slice(0, idx), snapshotsText: text.slice(idx + SNAPSHOTS_MARKER.length) };
+}
+
+function parseSnapshotsCsv(text) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) return [];
+  const header = rows[0].map(h => h.trim().toLowerCase());
+  const tsIdx = header.indexOf('ts');
+  const valIdx = header.indexOf('value');
+  if (tsIdx === -1 || valIdx === -1) return [];
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const d = row[tsIdx] ? new Date(row[tsIdx]) : null;
+    const value = parseFloat(row[valIdx]);
+    if (d && !isNaN(d) && value > 0) out.push({ ts: d.toISOString(), value });
+  }
+  return out;
 }
 
 function downloadCsvFallback(csv, filename) {

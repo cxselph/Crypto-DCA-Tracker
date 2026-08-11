@@ -22,6 +22,8 @@
 # Backup folders / generated archives
 backups/
 backup/
+store.json
+store.json.tmp
 
 # Common local environment files
 .env

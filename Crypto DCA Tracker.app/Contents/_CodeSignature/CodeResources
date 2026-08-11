@@ -8,9 +8,25 @@
 		<data>
 		uBhe0XjnXBA4XMTS5u4qKsmyZM4=
 		</data>
+		<key>Resources/Runtime/Crypto DCA Tracker.app/Contents/Info.plist</key>
+		<data>
+		2yWSMmHGt+spaRwCIcF36R1XIBw=
+		</data>
+		<key>Resources/Runtime/Crypto DCA Tracker.app/Contents/MacOS/Python</key>
+		<data>
+		FwsLjRbn6XxSAIB9kaE7pYr76AI=
+		</data>
+		<key>Resources/Runtime/Crypto DCA Tracker.app/Contents/Resources/applet.icns</key>
+		<data>
+		xYUANWZ/jheuVoMu9LAY4vWEIqY=
+		</data>
+		<key>Resources/Runtime/Crypto DCA Tracker.app/Contents/_CodeSignature/CodeResources</key>
+		<data>
+		c3qNLZ6LwvGvCmSVFrP6Si4dzyc=
+		</data>
 		<key>Resources/Scripts/main.scpt</key>
 		<data>
-		rLsLxA5wFi7aq0K9YiS6/+lwOug=
+		rWEdcxIEKOobZ29Bsoh2mNxfBdE=
 		</data>
 		<key>Resources/applet.icns</key>
 		<data>
@@ -34,15 +50,59 @@
 			S/k6TV+XN+bgfA6DzUHnZAsF7xUhwE8Ag9JpyS1R9wo=
 			</data>
 		</dict>
+		<key>Resources/Runtime/Crypto DCA Tracker.app/Contents/Info.plist</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			2yWSMmHGt+spaRwCIcF36R1XIBw=
+			</data>
+			<key>hash2</key>
+			<data>
+			elx7mCm4b78DOwSoCiHAj9TE1EU7SrrpQkTeQsQCF4o=
+			</data>
+		</dict>
+		<key>Resources/Runtime/Crypto DCA Tracker.app/Contents/MacOS/Python</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			FwsLjRbn6XxSAIB9kaE7pYr76AI=
+			</data>
+			<key>hash2</key>
+			<data>
+			OkKnQKywVm3fb7lCPZtZo6PzHJHcUZjPtMSu6Rx+Apw=
+			</data>
+		</dict>
+		<key>Resources/Runtime/Crypto DCA Tracker.app/Contents/Resources/applet.icns</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			xYUANWZ/jheuVoMu9LAY4vWEIqY=
+			</data>
+			<key>hash2</key>
+			<data>
+			oU09nZz8jLbWmqs4Am3ItFXX7TN/CfhqzGFF5XEmU/w=
+			</data>
+		</dict>
+		<key>Resources/Runtime/Crypto DCA Tracker.app/Contents/_CodeSignature/CodeResources</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			c3qNLZ6LwvGvCmSVFrP6Si4dzyc=
+			</data>
+			<key>hash2</key>
+			<data>
+			rUia34jeVgN5fBQwR3t3TB+sD4TOS5wO0jf/hd3muZQ=
+			</data>
+		</dict>
 		<key>Resources/Scripts/main.scpt</key>
 		<dict>
 			<key>hash</key>
 			<data>
-			rLsLxA5wFi7aq0K9YiS6/+lwOug=
+			rWEdcxIEKOobZ29Bsoh2mNxfBdE=
 			</data>
 			<key>hash2</key>
 			<data>
-			xmCgF9BYm+QhXEHdvCRVPaPlRyprjSdy99fgNSutGPs=
+			LbboJ3OUTQpiZmZNPEdnpWfJCwfoLrhFuQDd3CztYhg=
 			</data>
 		</dict>
 		<key>Resources/applet.icns</key>

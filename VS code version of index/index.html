@@ -1,0 +1,2150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Crypto DCA Tracker</title>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0f1419" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="DCA Tracker" />
+<link rel="apple-touch-icon" href="/icon.svg" />
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a2029;
+    --panel-2: #232a36;
+    --border: #2d3543;
+    --text: #e6e9ef;
+    --muted: #8b95a7;
+    --accent: #4f8cff;
+    --accent-hover: #6ba0ff;
+    --success: #3ecf8e;
+    --danger: #ef4444;
+    --warn: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header .actions { display: flex; gap: 8px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  section h2 { margin: 0 0 16px 0; font-size: 16px; font-weight: 600; }
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .section-header h2 { margin: 0; }
+
+  /* Forms */
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  input[type="text"], input[type="number"], input[type="datetime-local"], select, textarea {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 36px; }
+
+  /* Buttons */
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: var(--panel-2); border: 1px solid var(--border); }
+  button.secondary:hover:not(:disabled) { background: var(--border); }
+  button.danger { background: var(--danger); }
+  button.icon { padding: 4px 8px; font-size: 12px; }
+
+  /* Preview panel */
+  .preview {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  .preview.empty { border-left-color: var(--border); color: var(--muted); }
+  .preview-row { display: flex; justify-content: space-between; gap: 16px; padding: 2px 0; }
+  .preview-row .label { color: var(--muted); }
+  .preview-row .value { font-variant-numeric: tabular-nums; }
+  .preview .highlight { color: var(--accent); font-weight: 600; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  thead th {
+    text-align: left; font-size: 11px; text-transform: uppercase;
+    color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--border);
+    letter-spacing: 0.5px; font-weight: 600;
+  }
+  tbody td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--panel-2); }
+  .num { text-align: right; }
+  .pos { color: var(--success); }
+  .neg { color: var(--danger); }
+  .muted { color: var(--muted); }
+  .empty-state { text-align: center; color: var(--muted); padding: 32px; }
+
+  /* Toggle */
+  .toggle-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .toggle-row input { width: auto; }
+
+  /* Form actions */
+  .form-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: 90%;
+    max-width: 720px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal-header h3 { margin: 0; font-size: 16px; }
+  .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+  .modal-close {
+    background: transparent; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0;
+  }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .tab {
+    background: transparent; border: none; color: var(--muted);
+    padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent;
+    font-size: 14px;
+  }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .result-list { display: flex; flex-direction: column; gap: 6px; }
+  .result {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 12px;
+    align-items: center;
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .result:hover { border-color: var(--accent); background: var(--border); }
+  .result-hint { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .select-btn { white-space: nowrap; }
+  .confirm-panel {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+  }
+  .confirm-row { display: flex; gap: 12px; align-items: flex-start; }
+  .chain-badge {
+    background: var(--accent);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .result-main { display: flex; flex-direction: column; gap: 2px; }
+  .result-pair { font-weight: 600; }
+  .result-meta { font-size: 12px; color: var(--muted); }
+  .result-price { text-align: right; }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    border-radius: 6px;
+    max-width: 360px;
+    z-index: 200;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { border-left-color: var(--danger); }
+  .toast.success { border-left-color: var(--success); }
+
+  .loading { color: var(--muted); text-align: center; padding: 16px; font-size: 13px; }
+  .pill {
+    display: inline-block;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Crypto DCA Tracker</h1>
+  <div class="actions">
+    <button id="install-btn" class="secondary" style="display:none;">Install app</button>
+    <button id="refresh-prices-btn" class="secondary">Refresh prices</button>
+  </div>
+</header>
+
+<div id="storage-warning" style="display:none; background:#3a2618; border-bottom:1px solid #6b3a1f; color:#fbbf24; padding:10px 24px; font-size:13px;">
+  ⚠ Browser storage is disabled in this view (the page is loaded via a <code>data:</code> URL). Your data will be lost on refresh. To use the app for real, save <code>index.html</code> to your computer and open it directly from disk.
+</div>
+
+<main>
+  <!-- DASHBOARD -->
+  <section id="dashboard-section">
+    <div class="section-header">
+      <h2>Dashboard</h2>
+      <span id="last-refresh" class="muted" style="font-size:12px;"></span>
+    </div>
+    <div id="dashboard-content">
+      <div class="empty-state">No positions yet. Add a purchase below to get started.</div>
+    </div>
+  </section>
+
+  <!-- ADD TRANSACTION -->
+  <section id="add-section">
+    <h2>Add transaction</h2>
+    <div class="tabs">
+      <button type="button" class="tab active" data-txtype="buy">Buy</button>
+      <button type="button" class="tab" data-txtype="sell">Sell</button>
+    </div>
+    <div class="form-grid">
+      <div>
+        <label for="f-symbol">Symbol</label>
+        <input type="text" id="f-symbol" placeholder="e.g. PEPE" autocomplete="off" list="symbol-list" />
+        <datalist id="symbol-list"></datalist>
+        <div class="muted" style="font-size:11px; margin-top:4px;">Your own label. For the same ticker on different chains, use distinct labels (e.g. <code>HEX</code>, <code>HEX-ETH</code>, <code>eHEX</code>).</div>
+      </div>
+      <div>
+        <label for="f-quantity">Quantity</label>
+        <input type="text" inputmode="decimal" class="num-input" id="f-quantity" placeholder="0" autocomplete="off" />
+      </div>
+      <div id="price-field" style="display:none;">
+        <label for="f-price" id="f-price-label">Price per unit (USD)</label>
+        <input type="text" inputmode="decimal" class="num-input" id="f-price" placeholder="0.00" autocomplete="off" />
+      </div>
+      <div id="total-field">
+        <label for="f-total" id="f-total-label">Total spent (USD)</label>
+        <input type="text" inputmode="decimal" class="num-input" id="f-total" placeholder="0.00" autocomplete="off" />
+      </div>
+      <div>
+        <label for="f-fees">Fees (USD)</label>
+        <input type="text" inputmode="decimal" class="num-input" id="f-fees" placeholder="0.00" value="0" autocomplete="off" />
+      </div>
+      <div>
+        <label for="f-date">Date</label>
+        <input type="datetime-local" id="f-date" />
+      </div>
+      <div style="grid-column: 1 / -1;">
+        <label for="f-notes">Notes</label>
+        <textarea id="f-notes" rows="1" placeholder="Optional"></textarea>
+      </div>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="use-total-toggle" checked />
+      <label for="use-total-toggle" id="use-total-label" style="margin:0; text-transform:none; letter-spacing:0;">Enter total spent instead of price per unit</label>
+    </div>
+
+    <div id="preview-panel" class="preview empty">Enter symbol, quantity, and price to see the new average.</div>
+
+    <div class="form-actions">
+      <button id="submit-btn" disabled>Add to ledger</button>
+      <button id="clear-btn" class="secondary">Clear</button>
+      <span id="link-status" class="muted" style="margin-left:12px; font-size:12px; align-self:center;"></span>
+    </div>
+  </section>
+
+  <!-- LEDGER -->
+  <section id="ledger-section">
+    <div class="section-header">
+      <h2>Ledger</h2>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <select id="ledger-filter" style="width:auto;">
+          <option value="">All symbols</option>
+        </select>
+        <button id="restore-btn" class="secondary">Restore</button>
+        <button id="backup-btn" class="secondary">Backup</button>
+        <input type="file" id="restore-file-input" accept=".csv,text/csv" style="display:none;" />
+      </div>
+    </div>
+    <div id="ledger-content">
+      <div class="empty-state">No ledger entries yet.</div>
+    </div>
+  </section>
+</main>
+
+<!-- EDIT ENTRY MODAL -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Edit ledger entry</h3>
+      <button class="modal-close" id="edit-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="tabs">
+        <button type="button" class="tab active" data-etxtype="buy">Buy</button>
+        <button type="button" class="tab" data-etxtype="sell">Sell</button>
+      </div>
+      <div class="form-grid">
+        <div>
+          <label for="e-symbol">Symbol</label>
+          <input type="text" id="e-symbol" autocomplete="off" />
+        </div>
+        <div>
+          <label for="e-quantity">Quantity</label>
+          <input type="text" inputmode="decimal" class="num-input" id="e-quantity" autocomplete="off" />
+        </div>
+        <div id="e-price-field">
+          <label for="e-price" id="e-price-label">Price per unit (USD)</label>
+          <input type="text" inputmode="decimal" class="num-input" id="e-price" autocomplete="off" />
+        </div>
+        <div id="e-total-field" style="display:none;">
+          <label for="e-total" id="e-total-label">Total spent (USD)</label>
+          <input type="text" inputmode="decimal" class="num-input" id="e-total" autocomplete="off" />
+        </div>
+        <div>
+          <label for="e-fees">Fees (USD)</label>
+          <input type="text" inputmode="decimal" class="num-input" id="e-fees" autocomplete="off" />
+        </div>
+        <div>
+          <label for="e-date">Date</label>
+          <input type="datetime-local" id="e-date" />
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <label for="e-notes">Notes</label>
+          <textarea id="e-notes" rows="1"></textarea>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="e-use-total-toggle" />
+        <label for="e-use-total-toggle" id="e-use-total-label" style="margin:0; text-transform:none; letter-spacing:0;">Enter total spent instead of price per unit</label>
+      </div>
+      <div class="form-actions" style="margin-top:12px;">
+        <button id="edit-save-btn">Save changes</button>
+        <button id="edit-cancel-btn" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LOOKUP MODAL -->
+<div class="modal-overlay" id="lookup-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Link token to DexScreener — <span id="lookup-symbol"></span></h3>
+      <button class="modal-close" id="lookup-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="tabs">
+        <button class="tab active" data-tab="search">Search</button>
+        <button class="tab" data-tab="address">Paste contract address</button>
+      </div>
+
+      <div class="tab-panel active" id="tab-search">
+        <p class="muted" style="margin-top:0; font-size:13px;">Searches DexScreener for the symbol. Pick the chain/pair you want to use as the price source. Results sorted by liquidity.</p>
+        <button id="search-btn">Search DexScreener</button>
+        <div id="search-results" style="margin-top:12px;"></div>
+      </div>
+
+      <div class="tab-panel" id="tab-address">
+        <p class="muted" style="margin-top:0; font-size:13px;">Paste a token contract address. App will fetch its pairs from DexScreener so you can pick one as the price source.</p>
+        <div class="form-grid">
+          <div>
+            <label for="addr-chain">Chain</label>
+            <select id="addr-chain">
+              <option value="ethereum">Ethereum</option>
+              <option value="solana">Solana</option>
+              <option value="bsc">BSC</option>
+              <option value="base">Base</option>
+              <option value="arbitrum">Arbitrum</option>
+              <option value="polygon">Polygon</option>
+              <option value="avalanche">Avalanche</option>
+              <option value="optimism">Optimism</option>
+              <option value="fantom">Fantom</option>
+              <option value="cronos">Cronos</option>
+              <option value="pulsechain">PulseChain</option>
+              <option value="sui">Sui</option>
+              <option value="aptos">Aptos</option>
+            </select>
+          </div>
+          <div style="grid-column: span 2;">
+            <label for="addr-input">Token address</label>
+            <input type="text" id="addr-input" placeholder="0x... or chain-native address" />
+          </div>
+        </div>
+        <button id="addr-lookup-btn">Fetch pairs</button>
+        <div id="address-results" style="margin-top:12px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- RESTORE MODAL -->
+<div class="modal-overlay" id="restore-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Restore from backup</h3>
+      <button class="modal-close" id="restore-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="restore-folder-status" class="muted" style="font-size:13px; margin-bottom:12px;"></div>
+      <div style="display:flex; gap:8px; margin-bottom:12px;">
+        <button id="restore-refresh-btn" class="secondary">Refresh list</button>
+        <button id="restore-browse-elsewhere-btn" class="secondary">Browse elsewhere…</button>
+      </div>
+      <div id="restore-list"></div>
+      <div class="form-actions" style="margin-top:14px;">
+        <button id="restore-cancel-btn" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+//
+// ============== INDEXEDDB (directory handles) ==============
+//
+// FileSystemDirectoryHandle isn't JSON-serializable, so it goes in IndexedDB,
+// which can structured-clone it directly. localStorage holds the rest of the data.
+const IDB_NAME = 'dcaTrackerHandles';
+const IDB_STORE = 'handles';
+const BACKUP_DIR_KEY = 'backupDir';
+
+function openHandleDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbGet(key) {
+  const db = await openHandleDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbPut(key, value) {
+  const db = await openHandleDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function idbDelete(key) {
+  const db = await openHandleDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getBackupDirHandle() {
+  try { return await idbGet(BACKUP_DIR_KEY); } catch (e) { console.warn('idbGet failed', e); return null; }
+}
+async function setBackupDirHandle(handle) {
+  try { await idbPut(BACKUP_DIR_KEY, handle); } catch (e) { console.warn('idbPut failed', e); }
+}
+async function clearBackupDirHandle() {
+  try { await idbDelete(BACKUP_DIR_KEY); } catch (e) { console.warn('idbDelete failed', e); }
+}
+
+// Returns true if we have read/write access to the directory (prompts the user if needed).
+async function verifyPermission(handle, mode = 'readwrite') {
+  if (!handle) return false;
+  if ((await handle.queryPermission({ mode })) === 'granted') return true;
+  if ((await handle.requestPermission({ mode })) === 'granted') return true;
+  return false;
+}
+
+//
+// ============== LOCAL BACKEND (server.py) ==============
+//
+// If served via the bundled Python helper, /api/backups is available and we
+// write/read CSVs straight into the project's backups/ folder. Otherwise the
+// File System Access API path below kicks in.
+let backendAvailable = false;
+
+async function detectBackend() {
+  try {
+    const res = await fetch('/api/backups', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && Array.isArray(data.files)) backendAvailable = true;
+  } catch (e) {
+    backendAvailable = false;
+  }
+}
+
+async function backupViaBackend(csv, filename) {
+  const res = await fetch('/api/backup?name=' + encodeURIComponent(filename), {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/csv' },
+    body: csv,
+  });
+  if (!res.ok) {
+    let msg = 'HTTP ' + res.status;
+    try { const e = await res.json(); if (e?.error) msg = e.error; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function listBackendBackups() {
+  const res = await fetch('/api/backups', { cache: 'no-store' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+async function readBackendBackup(name) {
+  const res = await fetch('/api/backups/' + encodeURIComponent(name), { cache: 'no-store' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.text();
+}
+
+//
+// ============== STORAGE ==============
+//
+const STORAGE_KEY = 'dcaTrackerV1';
+let storageAvailable = false;
+let memoryStore = null; // in-memory fallback when localStorage is blocked
+
+function probeStorage() {
+  try {
+    const testKey = '__dca_probe__';
+    localStorage.setItem(testKey, '1');
+    localStorage.removeItem(testKey);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function loadStore() {
+  storageAvailable = probeStorage();
+  if (!storageAvailable) {
+    if (!memoryStore) memoryStore = { tokens: {}, ledger: [] };
+    return memoryStore;
+  }
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { tokens: {}, ledger: [] };
+    const parsed = JSON.parse(raw);
+    return { tokens: parsed.tokens || {}, ledger: parsed.ledger || [] };
+  } catch (e) {
+    console.error('Failed to load store', e);
+    return { tokens: {}, ledger: [] };
+  }
+}
+
+function saveStore() {
+  if (!storageAvailable) {
+    memoryStore = store;
+    return;
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  } catch (e) {
+    console.error('Failed to save store', e);
+    storageAvailable = false;
+    memoryStore = store;
+  }
+}
+
+let store = loadStore();
+
+function uuid() {
+  return crypto.randomUUID ? crypto.randomUUID() :
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+}
+
+//
+// ============== AGGREGATIONS ==============
+//
+function positionForSymbol(symbol) {
+  const entries = store.ledger
+    .filter(e => e.symbol === symbol)
+    .slice()
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  let totalUnits = 0, totalCost = 0, realizedPL = 0, totalProceeds = 0;
+  for (const e of entries) {
+    const type = e.type || 'buy';
+    const qty = Number(e.quantity);
+    const price = Number(e.pricePerUnit);
+    const fees = Number(e.fees || 0);
+    if (type === 'sell') {
+      const avgAtSale = totalUnits > 0 ? totalCost / totalUnits : 0;
+      const sellQty = Math.min(qty, totalUnits);
+      const proceeds = sellQty * price - fees;
+      const costRemoved = sellQty * avgAtSale;
+      realizedPL += proceeds - costRemoved;
+      totalProceeds += proceeds;
+      totalUnits -= sellQty;
+      totalCost -= costRemoved;
+    } else {
+      totalUnits += qty;
+      totalCost += qty * price + fees;
+    }
+  }
+  const avgCost = totalUnits > 0 ? totalCost / totalUnits : 0;
+  return { symbol, totalUnits, totalCost, avgCost, realizedPL, totalProceeds, entryCount: entries.length };
+}
+
+function allPositions() {
+  const symbols = [...new Set(store.ledger.map(e => e.symbol))].sort();
+  return symbols.map(positionForSymbol);
+}
+
+//
+// ============== FORMATTERS ==============
+//
+function fmtUsd(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  const abs = Math.abs(n);
+  if (abs === 0) return '$0.00';
+  if (abs < 0.0001) {
+    // Show enough decimal places to capture ~4 significant digits past the first non-zero digit.
+    const magnitude = Math.floor(Math.log10(abs));
+    const places = Math.min(18, -magnitude + 4);
+    const s = n.toFixed(places).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+    return '$' + s;
+  }
+  if (abs < 1) return '$' + n.toFixed(6);
+  if (abs < 100) return '$' + n.toFixed(4);
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtNum(n, maxDigits = 8) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return Number(n).toLocaleString('en-US', { maximumFractionDigits: maxDigits });
+}
+function fmtPct(n) {
+  if (n === null || n === undefined || isNaN(n) || !isFinite(n)) return '—';
+  const s = (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+  return s;
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString();
+}
+
+// Strip commas before parsing. parseFloat("1,234") returns 1 — we want 1234.
+function parseNum(v) {
+  if (v == null) return NaN;
+  const cleaned = String(v).replace(/,/g, '').trim();
+  if (cleaned === '') return NaN;
+  const n = parseFloat(cleaned);
+  return isFinite(n) ? n : NaN;
+}
+
+// Format a number with thousands-commas, preserving the decimal places the user typed.
+function formatNumWithCommas(value) {
+  if (value === '' || value == null) return '';
+  const cleaned = String(value).replace(/,/g, '');
+  const n = parseFloat(cleaned);
+  if (!isFinite(n)) return cleaned;
+  const decimalMatch = cleaned.match(/\.(\d*)/);
+  if (decimalMatch) {
+    const decimals = decimalMatch[1].length;
+    return n.toLocaleString('en-US', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+      useGrouping: true,
+    });
+  }
+  return n.toLocaleString('en-US', {
+    maximumFractionDigits: 12,
+    useGrouping: true,
+  });
+}
+
+function setNumInputValue(input, value) {
+  if (value === '' || value == null) { input.value = ''; return; }
+  input.value = formatNumWithCommas(value);
+}
+
+function attachCommaFormat(input) {
+  input.addEventListener('focus', () => {
+    input.value = String(input.value).replace(/,/g, '');
+  });
+  input.addEventListener('blur', () => {
+    if (input.value !== '') input.value = formatNumWithCommas(input.value);
+  });
+}
+
+//
+// ============== CHAIN SUFFIXES ==============
+//
+const CHAIN_SUFFIX = {
+  ethereum: 'ETH',
+  solana: 'SOL',
+  bsc: 'BSC',
+  base: 'BASE',
+  arbitrum: 'ARB',
+  polygon: 'POL',
+  avalanche: 'AVAX',
+  optimism: 'OP',
+  fantom: 'FTM',
+  cronos: 'CRO',
+  pulsechain: 'PLS',
+  sui: 'SUI',
+  aptos: 'APT',
+};
+function chainSuffix(chainId) {
+  if (!chainId) return '';
+  return CHAIN_SUFFIX[chainId] || chainId.slice(0, 4).toUpperCase();
+}
+
+//
+// ============== DEXSCREENER API ==============
+//
+const DS_BASE = 'https://api.dexscreener.com';
+const priceCache = new Map(); // pairKey -> { priceUsd, ts }
+const CACHE_TTL = 30 * 1000;
+
+async function dsSearch(query) {
+  const url = `${DS_BASE}/latest/dex/search?q=${encodeURIComponent(query)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`DexScreener search failed: ${res.status}`);
+  const data = await res.json();
+  return data.pairs || [];
+}
+
+async function dsTokenPairs(chainId, tokenAddress) {
+  // The newer endpoint `/tokens/v1/{chain}/{addr}` returns an array of pair objects.
+  const url = `${DS_BASE}/tokens/v1/${encodeURIComponent(chainId)}/${encodeURIComponent(tokenAddress)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Token pairs lookup failed: ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : (data.pairs || []);
+}
+
+async function dsPair(chainId, pairAddress) {
+  const key = `${chainId}/${pairAddress}`;
+  const cached = priceCache.get(key);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return cached.data;
+  }
+  const url = `${DS_BASE}/latest/dex/pairs/${encodeURIComponent(chainId)}/${encodeURIComponent(pairAddress)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Pair lookup failed: ${res.status}`);
+  const data = await res.json();
+  const pair = (data.pairs && data.pairs[0]) || data.pair || null;
+  priceCache.set(key, { data: pair, ts: Date.now() });
+  return pair;
+}
+
+//
+// ============== UI HELPERS ==============
+//
+function $(id) { return document.getElementById(id); }
+
+let toastTimeout = null;
+function toast(msg, type = '') {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  if (toastTimeout) clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => { el.className = 'toast ' + type; }, 3500);
+}
+
+//
+// ============== ADD TRANSACTION FORM ==============
+//
+let currentTxType = 'buy';
+
+function applyTxType(type) {
+  currentTxType = (type === 'sell') ? 'sell' : 'buy';
+  document.querySelectorAll('#add-section .tabs .tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.txtype === currentTxType);
+  });
+  const isSell = currentTxType === 'sell';
+  $('f-price-label').textContent = isSell ? 'Price per unit received (USD)' : 'Price per unit (USD)';
+  $('f-total-label').textContent = isSell ? 'Total received (USD)' : 'Total spent (USD)';
+  $('use-total-label').textContent = isSell
+    ? 'Enter total received instead of price per unit'
+    : 'Enter total spent instead of price per unit';
+  $('submit-btn').textContent = isSell ? 'Record sale' : 'Add to ledger';
+  updatePreview();
+}
+
+function currentSymbol() {
+  return ($('f-symbol').value || '').trim().toUpperCase();
+}
+
+function readForm() {
+  const symbol = currentSymbol();
+  const quantity = parseNum($('f-quantity').value) || 0;
+  const fees = parseNum($('f-fees').value) || 0;
+  const useTotal = $('use-total-toggle').checked;
+  let pricePerUnit;
+  if (useTotal) {
+    const total = parseNum($('f-total').value) || 0;
+    pricePerUnit = quantity > 0 ? total / quantity : 0;
+  } else {
+    pricePerUnit = parseNum($('f-price').value) || 0;
+  }
+  const date = $('f-date').value;
+  const notes = $('f-notes').value.trim();
+  return { symbol, quantity, pricePerUnit, fees, date, notes, type: currentTxType };
+}
+
+function updatePreview() {
+  const { symbol, quantity, pricePerUnit, fees, type } = readForm();
+  const panel = $('preview-panel');
+  const submitBtn = $('submit-btn');
+
+  if (!symbol || quantity <= 0 || pricePerUnit <= 0) {
+    panel.className = 'preview empty';
+    panel.textContent = type === 'sell'
+      ? 'Enter symbol, quantity, and sale price to preview this sale.'
+      : 'Enter symbol, quantity, and price to see the new average.';
+    submitBtn.disabled = true;
+    return;
+  }
+
+  const existing = positionForSymbol(symbol);
+  let html = '';
+  let allowSubmit = true;
+
+  if (type === 'sell') {
+    if (existing.totalUnits <= 0) {
+      panel.className = 'preview empty';
+      panel.innerHTML = `<div class="preview-row"><span class="label">${symbol}</span><span class="value neg">No units held — can't sell.</span></div>`;
+      submitBtn.disabled = true;
+      return;
+    }
+    const overSell = quantity > existing.totalUnits + 1e-12;
+    const sellQty = Math.min(quantity, existing.totalUnits);
+    const proceeds = sellQty * pricePerUnit - fees;
+    const costRemoved = sellQty * existing.avgCost;
+    const realized = proceeds - costRemoved;
+    const realizedPct = costRemoved > 0 ? (realized / costRemoved) * 100 : 0;
+    const remainingUnits = existing.totalUnits - sellQty;
+    const remainingCost = existing.totalCost - costRemoved;
+
+    html += `<div class="preview-row"><span class="label">${symbol} — current position</span>
+      <span class="value">${fmtNum(existing.totalUnits)} units @ avg ${fmtUsd(existing.avgCost)} (cost ${fmtUsd(existing.totalCost)})</span></div>`;
+    html += `<div class="preview-row"><span class="label">This sale</span>
+      <span class="value">−${fmtNum(sellQty)} units @ ${fmtUsd(pricePerUnit)} (proceeds ${fmtUsd(proceeds)})</span></div>`;
+    const realCls = realized >= 0 ? 'pos' : 'neg';
+    const realArrow = realized >= 0 ? '▲' : '▼';
+    html += `<div class="preview-row"><span class="label">Realized P&L</span>
+      <span class="value ${realCls} highlight">${realArrow} ${fmtUsd(Math.abs(realized))} (${fmtPct(realizedPct)})</span></div>`;
+    html += `<div class="preview-row"><span class="label">Remaining position</span>
+      <span class="value">${fmtNum(remainingUnits)} units @ avg ${fmtUsd(existing.avgCost)} (cost ${fmtUsd(remainingCost)})</span></div>`;
+    if (overSell) {
+      html += `<div class="preview-row"><span class="label neg">⚠ Over-sell blocked</span>
+        <span class="value neg">Requested ${fmtNum(quantity)}, only ${fmtNum(existing.totalUnits)} held.</span></div>`;
+      allowSubmit = false;
+    }
+  } else {
+    const newCost = quantity * pricePerUnit + fees;
+    const newTotalCost = existing.totalCost + newCost;
+    const newTotalUnits = existing.totalUnits + quantity;
+    const newAvg = newTotalCost / newTotalUnits;
+
+    if (existing.entryCount > 0 && existing.totalUnits > 0) {
+      html += `<div class="preview-row"><span class="label">${symbol} — current position</span>
+        <span class="value">${fmtNum(existing.totalUnits)} units @ avg ${fmtUsd(existing.avgCost)} (cost ${fmtUsd(existing.totalCost)})</span></div>`;
+      html += `<div class="preview-row"><span class="label">This purchase</span>
+        <span class="value">+${fmtNum(quantity)} units @ ${fmtUsd(pricePerUnit)} (cost ${fmtUsd(newCost)})</span></div>`;
+      html += `<div class="preview-row"><span class="label">New average</span>
+        <span class="value highlight">${fmtUsd(newAvg)} over ${fmtNum(newTotalUnits)} units</span></div>`;
+      const diff = newAvg - existing.avgCost;
+      const pct = existing.avgCost > 0 ? (diff / existing.avgCost) * 100 : 0;
+      const cls = diff >= 0 ? 'neg' : 'pos';
+      const arrow = diff >= 0 ? '▲' : '▼';
+      html += `<div class="preview-row"><span class="label">Change in avg</span>
+        <span class="value ${cls}">${arrow} ${fmtUsd(Math.abs(diff))} (${fmtPct(pct)})</span></div>`;
+    } else {
+      html += `<div class="preview-row"><span class="label">First buy for ${symbol}</span>
+        <span class="value">${fmtNum(quantity)} units @ ${fmtUsd(pricePerUnit)}</span></div>`;
+      html += `<div class="preview-row"><span class="label">Starting average</span>
+        <span class="value highlight">${fmtUsd(newAvg)}</span></div>`;
+      html += `<div class="preview-row"><span class="label">Total cost basis</span>
+        <span class="value">${fmtUsd(newCost)}</span></div>`;
+    }
+  }
+
+  panel.className = 'preview';
+  panel.innerHTML = html;
+  submitBtn.disabled = !allowSubmit;
+
+  const linked = store.tokens[symbol];
+  const linkStatus = $('link-status');
+  if (linked) {
+    linkStatus.innerHTML = `<span class="pill">Linked: ${linked.chainId} · ${linked.displayName || ''}</span>`;
+  } else {
+    linkStatus.innerHTML = `<span class="pill">Not yet linked to DexScreener</span>`;
+  }
+}
+
+function clearForm() {
+  $('f-symbol').value = '';
+  $('f-quantity').value = '';
+  $('f-price').value = '';
+  $('f-total').value = '';
+  $('f-fees').value = '0';
+  $('f-notes').value = '';
+  setDefaultDate();
+  updatePreview();
+}
+
+function renderSymbolList() {
+  const symbols = new Set();
+  store.ledger.forEach(e => symbols.add(e.symbol));
+  Object.keys(store.tokens).forEach(s => symbols.add(s));
+  const list = $('symbol-list');
+  list.innerHTML = [...symbols].sort().map(s => {
+    const t = store.tokens[s];
+    const label = t ? `${t.chainId}${t.displayName ? ' · ' + t.displayName : ''}` : 'unlinked';
+    return `<option value="${s}" label="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
+  }).join('');
+}
+
+function setDefaultDate() {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  $('f-date').value = now.toISOString().slice(0, 16);
+}
+
+function togglePriceInput() {
+  const useTotal = $('use-total-toggle').checked;
+  $('price-field').style.display = useTotal ? 'none' : '';
+  $('total-field').style.display = useTotal ? '' : 'none';
+}
+
+async function submitPurchase() {
+  const data = readForm();
+  if (!data.symbol || data.quantity <= 0 || data.pricePerUnit <= 0) return;
+
+  if (data.type === 'sell') {
+    const pos = positionForSymbol(data.symbol);
+    if (pos.totalUnits <= 0) {
+      toast(`No ${data.symbol} held — can't sell.`, 'error');
+      return;
+    }
+    if (data.quantity > pos.totalUnits + 1e-12) {
+      toast(`Can't sell ${fmtNum(data.quantity)} ${data.symbol} — only ${fmtNum(pos.totalUnits)} held.`, 'error');
+      return;
+    }
+  }
+
+  let finalSymbol = data.symbol;
+
+  // For buys: if symbol isn't linked, prompt to link via DexScreener. Skip for sells —
+  // selling an unlinked symbol is fine and shouldn't force a lookup.
+  if (data.type === 'buy' && !store.tokens[data.symbol]) {
+    const chosenLabel = await openLookupModal(data.symbol);
+    if (!chosenLabel) {
+      if (!confirm(`Add ${data.symbol} to the ledger without linking to DexScreener? (No live price will be shown on the dashboard.)`)) {
+        return;
+      }
+    } else {
+      finalSymbol = chosenLabel;
+    }
+  }
+
+  const entry = {
+    id: uuid(),
+    type: data.type,
+    symbol: finalSymbol,
+    quantity: data.quantity,
+    pricePerUnit: data.pricePerUnit,
+    fees: data.fees,
+    timestamp: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
+    notes: data.notes,
+  };
+  store.ledger.push(entry);
+  saveStore();
+  const verb = data.type === 'sell' ? 'Sold' : 'Added';
+  toast(`${verb} ${fmtNum(data.quantity)} ${finalSymbol}.`, 'success');
+  clearForm();
+  renderAll();
+  if (store.tokens[finalSymbol]) refreshPriceFor(finalSymbol);
+}
+
+//
+// ============== LOOKUP MODAL ==============
+//
+let lookupResolve = null;
+let currentLookupSymbol = null;
+
+function openLookupModal(symbol) {
+  return new Promise((resolve) => {
+    currentLookupSymbol = symbol;
+    lookupResolve = resolve;
+    $('lookup-symbol').textContent = symbol;
+    $('search-results').innerHTML = '';
+    $('address-results').innerHTML = '';
+    $('addr-input').value = '';
+    $('lookup-modal').classList.add('active');
+    switchTab('search');
+    // Auto-trigger search on open
+    setTimeout(() => doSearch(symbol), 50);
+  });
+}
+
+function closeLookupModal(linkedLabel) {
+  // linkedLabel: a string with the final label on success, null/false on cancel.
+  $('lookup-modal').classList.remove('active');
+  if (lookupResolve) {
+    lookupResolve(linkedLabel || null);
+    lookupResolve = null;
+  }
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+}
+
+async function doSearch(query) {
+  const target = $('search-results');
+  target.innerHTML = '<div class="loading">Searching DexScreener…</div>';
+  try {
+    const pairs = await dsSearch(query);
+    if (!pairs.length) {
+      target.innerHTML = '<div class="empty-state">No results. Try the "paste address" tab.</div>';
+      return;
+    }
+    // Filter to pairs whose base symbol matches the query (case-insensitive), then sort by liquidity desc
+    const q = query.toUpperCase();
+    let filtered = pairs.filter(p => p.baseToken && p.baseToken.symbol && p.baseToken.symbol.toUpperCase() === q);
+    if (filtered.length === 0) filtered = pairs;
+    filtered.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+    renderResults(filtered.slice(0, 12), target);
+  } catch (e) {
+    target.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
+  }
+}
+
+async function doAddressLookup() {
+  const chain = $('addr-chain').value;
+  const addr = $('addr-input').value.trim();
+  if (!addr) { toast('Enter a contract address.', 'error'); return; }
+  const target = $('address-results');
+  target.innerHTML = '<div class="loading">Fetching pairs…</div>';
+  try {
+    const pairs = await dsTokenPairs(chain, addr);
+    if (!pairs.length) {
+      target.innerHTML = '<div class="empty-state">No pairs found for that address on ' + chain + '.</div>';
+      return;
+    }
+    pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+    renderResults(pairs.slice(0, 12), target);
+  } catch (e) {
+    target.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
+  }
+}
+
+// Module-level cache of the current result set so click handlers can look up by index.
+let currentResults = [];
+
+function renderResults(pairs, target) {
+  currentResults = pairs.slice();
+  target.innerHTML = '';
+
+  const hint = document.createElement('div');
+  hint.className = 'result-hint';
+  hint.textContent = `${pairs.length} match${pairs.length === 1 ? '' : 'es'} — click a row (or its Select button) to use that pair as the price source.`;
+  target.appendChild(hint);
+
+  const list = document.createElement('div');
+  list.className = 'result-list';
+  pairs.forEach((p, idx) => {
+    const row = document.createElement('div');
+    row.className = 'result';
+    row.setAttribute('data-idx', String(idx));
+    const base = p.baseToken?.symbol || '?';
+    const quote = p.quoteToken?.symbol || '?';
+    const dex = p.dexId || '';
+    const liq = p.liquidity?.usd || 0;
+    const vol = p.volume?.h24 || 0;
+    const price = p.priceUsd ? parseFloat(p.priceUsd) : null;
+    row.innerHTML = `
+      <span class="chain-badge">${p.chainId || '?'}</span>
+      <div class="result-main">
+        <div class="result-pair">${base} / ${quote} <span class="muted" style="font-weight:400;">· ${dex}</span></div>
+        <div class="result-meta">Liquidity ${fmtUsd(liq)} · 24h vol ${fmtUsd(vol)}</div>
+      </div>
+      <div class="result-price">
+        <div>${fmtUsd(price)}</div>
+        <div class="result-meta">${p.priceChange?.h24 != null ? fmtPct(p.priceChange.h24) : ''}</div>
+      </div>
+      <button type="button" class="select-btn" data-idx="${idx}">Select</button>
+    `;
+    list.appendChild(row);
+  });
+  target.appendChild(list);
+}
+
+// One delegated listener handles every result-row / select-btn click — set up once at startup.
+function handleResultClick(e) {
+  const selectBtn = e.target.closest('[data-idx]');
+  if (!selectBtn) return;
+  e.stopPropagation();
+  e.preventDefault();
+  const idx = parseInt(selectBtn.getAttribute('data-idx'), 10);
+  const pair = currentResults[idx];
+  if (!pair) {
+    toast('Could not find that pair. Try searching again.', 'error');
+    return;
+  }
+  showSelectConfirmation(pair, e.currentTarget);
+}
+
+// Confirmation step before linking. Shows pair info and lets the user pick the final label.
+function showSelectConfirmation(pair, container) {
+  const base = pair.baseToken?.symbol || '?';
+  const quote = pair.quoteToken?.symbol || '?';
+  const dex = pair.dexId || '';
+  const suffix = chainSuffix(pair.chainId);
+  const typed = currentLookupSymbol || base;
+  const suggested = `${typed}-${suffix}`;
+
+  // Detect conflicts: an existing different mapping under either label.
+  const conflictTyped = store.tokens[typed] && store.tokens[typed].pairAddress !== pair.pairAddress;
+  const conflictSuggested = store.tokens[suggested] && store.tokens[suggested].pairAddress !== pair.pairAddress;
+
+  container.innerHTML = `
+    <div class="result-hint">Confirm the label you want to save this pair under.</div>
+    <div class="confirm-panel">
+      <div class="confirm-row">
+        <span class="chain-badge">${pair.chainId || '?'}</span>
+        <div>
+          <div class="result-pair">${base} / ${quote} <span class="muted" style="font-weight:400;">· ${dex}</span></div>
+          <div class="result-meta">Liquidity ${fmtUsd(pair.liquidity?.usd || 0)} · price ${fmtUsd(pair.priceUsd ? parseFloat(pair.priceUsd) : null)}</div>
+          <div class="result-meta" style="font-family: monospace; font-size: 11px; word-break: break-all;">${pair.baseToken?.address || ''}</div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;">
+        <label for="confirm-label">Save as label</label>
+        <input type="text" id="confirm-label" value="${escapeHtml(typed)}" autocomplete="off" />
+        <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
+          <button type="button" class="secondary icon suggest-btn" data-value="${escapeHtml(typed)}">${escapeHtml(typed)}</button>
+          <button type="button" class="secondary icon suggest-btn" data-value="${escapeHtml(suggested)}">${escapeHtml(suggested)} (chain-suffixed)</button>
+          ${base && base.toUpperCase() !== typed.toUpperCase() ? `<button type="button" class="secondary icon suggest-btn" data-value="${escapeHtml(base.toUpperCase() + '-' + suffix)}">${escapeHtml(base.toUpperCase() + '-' + suffix)}</button>` : ''}
+        </div>
+        <div id="confirm-warn" class="muted" style="font-size:12px; margin-top:8px;"></div>
+      </div>
+
+      <div class="form-actions" style="margin-top:14px;">
+        <button type="button" id="confirm-save-btn">Save</button>
+        <button type="button" class="secondary" id="confirm-back-btn">Back to results</button>
+      </div>
+    </div>
+  `;
+
+  const labelInput = container.querySelector('#confirm-label');
+  const warn = container.querySelector('#confirm-warn');
+  const updateWarn = () => {
+    const lbl = (labelInput.value || '').trim().toUpperCase();
+    if (!lbl) { warn.textContent = 'Label cannot be empty.'; warn.style.color = 'var(--danger)'; return; }
+    const existing = store.tokens[lbl];
+    if (existing && existing.pairAddress !== pair.pairAddress) {
+      warn.innerHTML = `⚠ <strong>${lbl}</strong> is already linked to <strong>${existing.chainId}</strong> (${existing.displayName || ''}). Saving will overwrite that mapping.`;
+      warn.style.color = 'var(--warn)';
+    } else if (lbl !== (currentLookupSymbol || '').toUpperCase() && [...new Set(store.ledger.map(e => e.symbol))].includes(currentLookupSymbol) && currentLookupSymbol) {
+      const count = store.ledger.filter(e => e.symbol === currentLookupSymbol).length;
+      warn.innerHTML = `ℹ Renaming will also migrate <strong>${count}</strong> existing ledger ${count === 1 ? 'entry' : 'entries'} from <strong>${currentLookupSymbol}</strong> → <strong>${lbl}</strong>.`;
+      warn.style.color = 'var(--muted)';
+    } else {
+      warn.textContent = '';
+    }
+  };
+  labelInput.addEventListener('input', () => { labelInput.value = labelInput.value.toUpperCase(); updateWarn(); });
+  container.querySelectorAll('.suggest-btn').forEach(b => {
+    b.addEventListener('click', () => { labelInput.value = b.dataset.value.toUpperCase(); updateWarn(); });
+  });
+  container.querySelector('#confirm-back-btn').addEventListener('click', () => {
+    // Re-render the results list
+    renderResults(currentResults, container);
+  });
+  container.querySelector('#confirm-save-btn').addEventListener('click', () => {
+    const finalLabel = (labelInput.value || '').trim().toUpperCase();
+    if (!finalLabel) { toast('Label cannot be empty.', 'error'); return; }
+    try {
+      selectPair(pair, finalLabel);
+    } catch (err) {
+      console.error('[selectPair] threw:', err);
+      toast('Error linking token: ' + err.message, 'error');
+    }
+  });
+  updateWarn();
+}
+
+function selectPair(p, finalLabel) {
+  const oldLabel = currentLookupSymbol;
+  const label = (finalLabel || oldLabel || '').toUpperCase();
+  if (!label) {
+    toast('No label provided.', 'error');
+    return;
+  }
+
+  // If the label is different from the original, migrate any existing ledger entries from oldLabel → label
+  // and remove the old token mapping (if it pointed at a different pair).
+  if (oldLabel && oldLabel.toUpperCase() !== label) {
+    const migrated = store.ledger.filter(e => e.symbol === oldLabel).length;
+    store.ledger.forEach(e => {
+      if (e.symbol === oldLabel) e.symbol = label;
+    });
+    // If the old label had its own mapping pointing at a different pair, drop it.
+    if (store.tokens[oldLabel] && store.tokens[oldLabel].pairAddress !== p.pairAddress) {
+      delete store.tokens[oldLabel];
+    } else if (store.tokens[oldLabel]) {
+      delete store.tokens[oldLabel];
+    }
+    if (migrated > 0) console.log(`Migrated ${migrated} ledger entries from ${oldLabel} → ${label}`);
+  }
+
+  store.tokens[label] = {
+    chainId: p.chainId,
+    tokenAddress: p.baseToken?.address,
+    pairAddress: p.pairAddress,
+    displayName: p.baseToken?.name || p.baseToken?.symbol || label,
+  };
+  // Seed cache so the dashboard shows a price immediately.
+  if (p.priceUsd) {
+    priceCache.set(`${p.chainId}/${p.pairAddress}`, { data: p, ts: Date.now() });
+    livePrices[label] = { priceUsd: parseFloat(p.priceUsd) };
+  }
+  saveStore();
+  toast(`Linked ${label} → ${p.chainId} ${p.baseToken?.symbol}/${p.quoteToken?.symbol}`, 'success');
+  closeLookupModal(label);
+  // Sync the visible form symbol if the user typed something different.
+  if ($('f-symbol').value && $('f-symbol').value.toUpperCase() !== label) {
+    $('f-symbol').value = label;
+  }
+  updatePreview();
+  renderAll();
+}
+
+//
+// ============== DASHBOARD ==============
+//
+const livePrices = {}; // symbol -> { priceUsd, error }
+
+async function refreshPriceFor(symbol) {
+  const link = store.tokens[symbol];
+  if (!link) return;
+  try {
+    const pair = await dsPair(link.chainId, link.pairAddress);
+    livePrices[symbol] = { priceUsd: pair?.priceUsd ? parseFloat(pair.priceUsd) : null };
+  } catch (e) {
+    livePrices[symbol] = { priceUsd: null, error: e.message };
+  }
+  renderDashboard();
+}
+
+async function refreshAllPrices() {
+  const symbols = [...new Set(store.ledger.map(e => e.symbol))].filter(s => store.tokens[s]);
+  await Promise.all(symbols.map(refreshPriceFor));
+  $('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+
+function renderDashboard() {
+  const positions = allPositions();
+  const root = $('dashboard-content');
+  if (positions.length === 0) {
+    root.innerHTML = '<div class="empty-state">No positions yet. Add a transaction below to get started.</div>';
+    return;
+  }
+  let totalCost = 0, totalValue = 0, totalRealized = 0;
+  const rows = positions.map(p => {
+    const link = store.tokens[p.symbol];
+    const live = livePrices[p.symbol];
+    const livePrice = live?.priceUsd ?? null;
+    const currentValue = livePrice != null ? p.totalUnits * livePrice : null;
+    const unrealized = currentValue != null ? currentValue - p.totalCost : null;
+    const unrealizedPct = unrealized != null && p.totalCost > 0 ? (unrealized / p.totalCost) * 100 : null;
+    totalCost += p.totalCost;
+    totalRealized += p.realizedPL || 0;
+    if (currentValue != null) totalValue += currentValue;
+
+    const unrCls = unrealized == null ? 'muted' : (unrealized >= 0 ? 'pos' : 'neg');
+    const realCls = (p.realizedPL || 0) === 0 ? 'muted' : ((p.realizedPL || 0) >= 0 ? 'pos' : 'neg');
+    const linkBtn = link
+      ? `<button class="secondary icon" data-action="relink" data-symbol="${p.symbol}">Re-link</button>`
+      : `<button class="icon" data-action="link" data-symbol="${p.symbol}">Link token</button>`;
+
+    return `<tr>
+      <td><strong>${p.symbol}</strong>${link ? `<div style="margin-top:2px;"><span class="chain-badge" style="font-size:10px;">${link.chainId}</span></div>` : ''}</td>
+      <td class="num">${fmtNum(p.totalUnits)}</td>
+      <td class="num">${fmtUsd(p.totalCost)}</td>
+      <td class="num">${fmtUsd(p.avgCost)}</td>
+      <td class="num">${fmtUsd(livePrice)}</td>
+      <td class="num">${fmtUsd(currentValue)}</td>
+      <td class="num ${unrCls}">${unrealized == null ? '—' : fmtUsd(unrealized) + ' (' + fmtPct(unrealizedPct) + ')'}</td>
+      <td class="num ${realCls}">${(p.realizedPL || 0) === 0 ? '—' : fmtUsd(p.realizedPL)}</td>
+      <td>${linkBtn}</td>
+    </tr>`;
+  }).join('');
+
+  const totalUnrealized = (totalValue || 0) - totalCost;
+  const totalUnrCls = totalUnrealized >= 0 ? 'pos' : 'neg';
+  const totalRealCls = totalRealized === 0 ? 'muted' : (totalRealized >= 0 ? 'pos' : 'neg');
+
+  root.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th class="num">Units</th>
+          <th class="num">Cost basis</th>
+          <th class="num">Avg cost</th>
+          <th class="num">Live price</th>
+          <th class="num">Current value</th>
+          <th class="num">Unrealized P&L</th>
+          <th class="num">Realized P&L</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2"><strong>Portfolio total</strong></td>
+          <td class="num"><strong>${fmtUsd(totalCost)}</strong></td>
+          <td></td>
+          <td></td>
+          <td class="num"><strong>${fmtUsd(totalValue)}</strong></td>
+          <td class="num ${totalUnrCls}"><strong>${fmtUsd(totalUnrealized)}</strong></td>
+          <td class="num ${totalRealCls}"><strong>${totalRealized === 0 ? '—' : fmtUsd(totalRealized)}</strong></td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  `;
+
+  // Wire up link buttons
+  root.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const symbol = btn.dataset.symbol;
+      const finalLabel = await openLookupModal(symbol);
+      if (finalLabel) refreshPriceFor(finalLabel);
+    });
+  });
+}
+
+//
+// ============== LEDGER ==============
+//
+function renderLedger() {
+  const filter = $('ledger-filter');
+  const symbols = [...new Set(store.ledger.map(e => e.symbol))].sort();
+  const currentValue = filter.value;
+  filter.innerHTML = '<option value="">All symbols</option>' +
+    symbols.map(s => `<option value="${s}" ${s === currentValue ? 'selected' : ''}>${s}</option>`).join('');
+
+  const entries = store.ledger
+    .filter(e => !currentValue || e.symbol === currentValue)
+    .slice()
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  const root = $('ledger-content');
+  if (entries.length === 0) {
+    root.innerHTML = '<div class="empty-state">No ledger entries yet.</div>';
+    return;
+  }
+
+  const rows = entries.map(e => {
+    const type = e.type || 'buy';
+    const isSell = type === 'sell';
+    const cashFlow = Number(e.quantity) * Number(e.pricePerUnit);
+    const total = isSell ? cashFlow - Number(e.fees || 0) : cashFlow + Number(e.fees || 0);
+    const sign = isSell ? '−' : '+';
+    const qtyCls = isSell ? 'neg' : 'pos';
+    const typeBadge = isSell
+      ? '<span class="chain-badge" style="background:var(--danger);">SELL</span>'
+      : '<span class="chain-badge" style="background:var(--success);">BUY</span>';
+    return `<tr>
+      <td>${fmtDate(e.timestamp)}</td>
+      <td>${typeBadge}</td>
+      <td><strong>${e.symbol}</strong></td>
+      <td class="num ${qtyCls}">${sign}${fmtNum(e.quantity)}</td>
+      <td class="num">${fmtUsd(e.pricePerUnit)}</td>
+      <td class="num">${fmtUsd(e.fees || 0)}</td>
+      <td class="num">${fmtUsd(total)}</td>
+      <td class="muted" style="max-width:240px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(e.notes || '')}</td>
+      <td style="white-space:nowrap;">
+        <button class="secondary icon" data-action="edit" data-id="${e.id}">Edit</button>
+        <button class="danger icon" data-action="delete" data-id="${e.id}">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  root.innerHTML = `<table>
+    <thead>
+      <tr><th>Date</th><th>Type</th><th>Symbol</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Fees</th><th class="num">Total</th><th>Notes</th><th></th></tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+
+  root.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      if (btn.dataset.action === 'delete') {
+        if (!confirm('Delete this entry?')) return;
+        store.ledger = store.ledger.filter(e => e.id !== id);
+        saveStore();
+        renderAll();
+      } else if (btn.dataset.action === 'edit') {
+        openEditModal(id);
+      }
+    });
+  });
+}
+
+//
+// ============== EDIT ENTRY MODAL ==============
+//
+let editingEntryId = null;
+let editingTxType = 'buy';
+
+function applyEditTxType(type) {
+  editingTxType = (type === 'sell') ? 'sell' : 'buy';
+  document.querySelectorAll('#edit-modal .tabs .tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.etxtype === editingTxType);
+  });
+  const isSell = editingTxType === 'sell';
+  $('e-price-label').textContent = isSell ? 'Price per unit received (USD)' : 'Price per unit (USD)';
+  $('e-total-label').textContent = isSell ? 'Total received (USD)' : 'Total spent (USD)';
+  $('e-use-total-label').textContent = isSell
+    ? 'Enter total received instead of price per unit'
+    : 'Enter total spent instead of price per unit';
+}
+
+function openEditModal(id) {
+  const entry = store.ledger.find(e => e.id === id);
+  if (!entry) { toast('Entry not found.', 'error'); return; }
+  editingEntryId = id;
+  $('e-symbol').value = entry.symbol;
+  setNumInputValue($('e-quantity'), entry.quantity);
+  setNumInputValue($('e-price'), entry.pricePerUnit);
+  setNumInputValue($('e-total'), Number(entry.quantity) * Number(entry.pricePerUnit));
+  setNumInputValue($('e-fees'), entry.fees || 0);
+  const d = new Date(entry.timestamp);
+  const localIso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  $('e-date').value = localIso;
+  $('e-notes').value = entry.notes || '';
+  $('e-use-total-toggle').checked = false;
+  toggleEditPriceInput();
+  applyEditTxType(entry.type || 'buy');
+  $('edit-modal').classList.add('active');
+  setTimeout(() => $('e-quantity').focus(), 50);
+}
+
+function toggleEditPriceInput() {
+  const useTotal = $('e-use-total-toggle').checked;
+  $('e-price-field').style.display = useTotal ? 'none' : '';
+  $('e-total-field').style.display = useTotal ? '' : 'none';
+  const qty = parseNum($('e-quantity').value) || 0;
+  if (useTotal) {
+    const price = parseNum($('e-price').value) || 0;
+    if (qty > 0 && price > 0) setNumInputValue($('e-total'), qty * price);
+  } else {
+    const total = parseNum($('e-total').value) || 0;
+    if (qty > 0 && total > 0) setNumInputValue($('e-price'), total / qty);
+  }
+}
+
+function closeEditModal() {
+  $('edit-modal').classList.remove('active');
+  editingEntryId = null;
+}
+
+function saveEditedEntry() {
+  if (!editingEntryId) return;
+  const idx = store.ledger.findIndex(e => e.id === editingEntryId);
+  if (idx === -1) { toast('Entry not found.', 'error'); return; }
+
+  const symbol = ($('e-symbol').value || '').trim().toUpperCase();
+  const quantity = parseNum($('e-quantity').value);
+  const useTotal = $('e-use-total-toggle').checked;
+  let pricePerUnit;
+  if (useTotal) {
+    const total = parseNum($('e-total').value);
+    pricePerUnit = quantity > 0 ? total / quantity : 0;
+  } else {
+    pricePerUnit = parseNum($('e-price').value);
+  }
+  const fees = parseNum($('e-fees').value) || 0;
+  const dateRaw = $('e-date').value;
+  const notes = $('e-notes').value.trim();
+
+  if (!symbol) { toast('Symbol is required.', 'error'); return; }
+  if (!(quantity > 0)) { toast('Quantity must be greater than 0.', 'error'); return; }
+  if (!(pricePerUnit > 0)) { toast(useTotal ? 'Total must be greater than 0.' : 'Price must be greater than 0.', 'error'); return; }
+
+  if (editingTxType === 'sell') {
+    // Compute position as if this entry didn't exist, to allow editing the sale itself.
+    const otherEntries = store.ledger.filter(e => e.id !== editingEntryId);
+    const savedLedger = store.ledger;
+    store.ledger = otherEntries;
+    const pos = positionForSymbol(symbol);
+    store.ledger = savedLedger;
+    if (pos.totalUnits <= 0) {
+      toast(`No ${symbol} held at the time of this sale.`, 'error');
+      return;
+    }
+    if (quantity > pos.totalUnits + 1e-12) {
+      toast(`Can't sell ${fmtNum(quantity)} ${symbol} — only ${fmtNum(pos.totalUnits)} held.`, 'error');
+      return;
+    }
+  }
+
+  store.ledger[idx] = {
+    ...store.ledger[idx],
+    type: editingTxType,
+    symbol,
+    quantity,
+    pricePerUnit,
+    fees,
+    timestamp: dateRaw ? new Date(dateRaw).toISOString() : store.ledger[idx].timestamp,
+    notes,
+  };
+  saveStore();
+  toast('Entry updated.', 'success');
+  closeEditModal();
+  renderAll();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function parseCsv(text) {
+  const out = [];
+  let row = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { cur += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        cur += c;
+      }
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { row.push(cur); cur = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (cur.length || row.length) { row.push(cur); out.push(row); row = []; cur = ''; }
+        if (c === '\r' && text[i + 1] === '\n') i++;
+      }
+      else cur += c;
+    }
+  }
+  if (cur.length || row.length) { row.push(cur); out.push(row); }
+  return out.filter(r => r.some(cell => cell.length > 0));
+}
+
+function importCsvFromText(text) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) throw new Error('CSV has no data rows.');
+  const header = rows[0].map(h => h.trim());
+  const idx = {
+    date: header.indexOf('date'),
+    type: header.indexOf('type'),
+    symbol: header.indexOf('symbol'),
+    quantity: header.indexOf('quantity'),
+    pricePerUnit: header.indexOf('pricePerUnit'),
+    fees: header.indexOf('fees'),
+    notes: header.indexOf('notes'),
+    chain: header.indexOf('chain'),
+    tokenAddress: header.indexOf('tokenAddress'),
+    pairAddress: header.indexOf('pairAddress'),
+    displayName: header.indexOf('displayName'),
+  };
+  for (const col of ['date', 'symbol', 'quantity', 'pricePerUnit']) {
+    if (idx[col] === -1) throw new Error(`Missing required column: ${col}`);
+  }
+
+  const entries = [];
+  const importedTokens = {};
+  let skipped = 0;
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const symbol = (row[idx.symbol] || '').trim().toUpperCase();
+    const quantity = parseFloat(row[idx.quantity]);
+    const pricePerUnit = parseFloat(row[idx.pricePerUnit]);
+    const fees = idx.fees >= 0 ? (parseFloat(row[idx.fees]) || 0) : 0;
+    const date = row[idx.date];
+    const notes = idx.notes >= 0 ? (row[idx.notes] || '').trim() : '';
+    const rawType = idx.type >= 0 ? (row[idx.type] || '').trim().toLowerCase() : '';
+    const type = rawType === 'sell' ? 'sell' : 'buy';
+    if (!symbol || !(quantity > 0) || !(pricePerUnit > 0)) { skipped++; continue; }
+    const parsedDate = date ? new Date(date) : null;
+    entries.push({
+      id: uuid(),
+      type,
+      symbol,
+      quantity,
+      pricePerUnit,
+      fees,
+      timestamp: parsedDate && !isNaN(parsedDate) ? parsedDate.toISOString() : new Date().toISOString(),
+      notes,
+    });
+    // Capture token-link columns if present and non-empty (first occurrence per symbol wins)
+    if (idx.chain >= 0 && idx.pairAddress >= 0 && !importedTokens[symbol]) {
+      const chain = (row[idx.chain] || '').trim();
+      const pairAddr = (row[idx.pairAddress] || '').trim();
+      if (chain && pairAddr) {
+        importedTokens[symbol] = {
+          chainId: chain,
+          tokenAddress: (row[idx.tokenAddress] || '').trim(),
+          pairAddress: pairAddr,
+          displayName: idx.displayName >= 0 ? (row[idx.displayName] || '').trim() : symbol,
+        };
+      }
+    }
+  }
+
+  if (entries.length === 0) throw new Error('No valid rows found.');
+
+  let mode = 'append';
+  if (store.ledger.length > 0) {
+    const append = confirm(
+      `Found ${entries.length} valid entr${entries.length === 1 ? 'y' : 'ies'} to import` +
+      (skipped > 0 ? ` (${skipped} skipped due to missing/invalid fields)` : '') +
+      `.\n\nOK = APPEND to your existing ${store.ledger.length} entr${store.ledger.length === 1 ? 'y' : 'ies'}.\nCancel = REPLACE existing ledger.`
+    );
+    if (!append) {
+      if (!confirm(`Are you sure you want to REPLACE all ${store.ledger.length} existing entries? This cannot be undone.`)) return;
+      mode = 'replace';
+    }
+  }
+
+  if (mode === 'replace') {
+    store.ledger = entries;
+    store.tokens = { ...importedTokens };
+  } else {
+    store.ledger.push(...entries);
+    // Append mode: only add mappings for symbols that don't already have one (don't overwrite user's existing links)
+    for (const [sym, link] of Object.entries(importedTokens)) {
+      if (!store.tokens[sym]) store.tokens[sym] = link;
+    }
+  }
+  saveStore();
+
+  const newSymbols = [...new Set(entries.map(e => e.symbol))];
+  const linkedCount = newSymbols.filter(s => store.tokens[s]).length;
+  const unlinked = newSymbols.filter(s => !store.tokens[s]);
+  let msg = `Restored ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}. ${linkedCount} symbol${linkedCount === 1 ? '' : 's'} linked.`;
+  if (unlinked.length > 0) msg += ` ${unlinked.length} still need${unlinked.length === 1 ? 's' : ''} linking.`;
+  toast(msg, 'success');
+  renderAll();
+  refreshAllPrices();
+}
+
+function handleImportFile(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      importCsvFromText(String(reader.result));
+      closeRestoreModal();
+    }
+    catch (err) {
+      console.error('Restore failed:', err);
+      toast('Restore failed: ' + err.message, 'error');
+    } finally {
+      e.target.value = ''; // allow re-selecting the same file
+    }
+  };
+  reader.onerror = () => toast('Could not read file.', 'error');
+  reader.readAsText(file);
+}
+
+//
+// ============== RESTORE MODAL ==============
+//
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function openRestoreModal() {
+  $('restore-modal').classList.add('active');
+  await renderRestoreModal();
+}
+
+function closeRestoreModal() {
+  $('restore-modal').classList.remove('active');
+}
+
+async function renderRestoreModal() {
+  const statusEl = $('restore-folder-status');
+  const listEl = $('restore-list');
+  const refreshBtn = $('restore-refresh-btn');
+  refreshBtn.style.display = '';
+
+  if (backendAvailable) {
+    statusEl.innerHTML = `Backups folder: <strong>backups/</strong> <span class="muted">(via local server)</span>`;
+    listEl.innerHTML = '<div class="loading">Reading folder…</div>';
+    let data;
+    try {
+      data = await listBackendBackups();
+    } catch (err) {
+      listEl.innerHTML = `<div class="empty-state">Could not read backups: ${escapeHtml(err.message)}</div>`;
+      return;
+    }
+    if (!data.files.length) {
+      listEl.innerHTML = '<div class="empty-state">No .csv backups in this folder yet.</div>';
+      return;
+    }
+    const list = document.createElement('div');
+    list.className = 'result-list';
+    data.files.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'result';
+      row.innerHTML = `
+        <span class="chain-badge">CSV</span>
+        <div class="result-main">
+          <div class="result-pair">${escapeHtml(f.name)}</div>
+          <div class="result-meta">${fmtBytes(f.size)} · ${fmtDate(new Date(f.modified).toISOString())}</div>
+        </div>
+        <div class="result-price"></div>
+        <button type="button" class="select-btn" data-name="${escapeHtml(f.name)}">Restore</button>
+      `;
+      list.appendChild(row);
+    });
+    listEl.innerHTML = '';
+    listEl.appendChild(list);
+    list.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-name]');
+      if (!btn) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const name = btn.getAttribute('data-name');
+      try {
+        const text = await readBackendBackup(name);
+        importCsvFromText(text);
+        closeRestoreModal();
+      } catch (err) {
+        console.error('Restore failed:', err);
+        toast('Restore failed: ' + err.message, 'error');
+      }
+    });
+    return;
+  }
+
+  if (!('showDirectoryPicker' in window)) {
+    statusEl.innerHTML = `This browser doesn't support browsing a backup folder. Start <strong>server.py</strong> to enable folder access, or use <strong>Browse elsewhere…</strong> to pick a CSV file.`;
+    listEl.innerHTML = '';
+    refreshBtn.style.display = 'none';
+    return;
+  }
+
+  let dirHandle = await getBackupDirHandle();
+  if (!dirHandle) {
+    statusEl.innerHTML = `No backups folder linked. <a href="#" id="restore-link-folder">Link folder…</a>`;
+    listEl.innerHTML = '<div class="empty-state">Link a backups folder to see saved backups here.</div>';
+    statusEl.querySelector('#restore-link-folder')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        await pickBackupDirectory();
+        await renderRestoreModal();
+      } catch (err) {
+        if (err?.name !== 'AbortError') toast('Could not link folder: ' + err.message, 'error');
+      }
+    });
+    return;
+  }
+
+  if (!(await verifyPermission(dirHandle, 'read'))) {
+    statusEl.innerHTML = `Permission needed to read <strong>${escapeHtml(dirHandle.name)}</strong>. <a href="#" id="restore-grant">Grant access</a> or <a href="#" id="restore-change">change folder…</a>`;
+    listEl.innerHTML = '';
+    statusEl.querySelector('#restore-grant')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await renderRestoreModal();
+    });
+    statusEl.querySelector('#restore-change')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        await pickBackupDirectory();
+        await renderRestoreModal();
+      } catch (err) {
+        if (err?.name !== 'AbortError') toast('Could not link folder: ' + err.message, 'error');
+      }
+    });
+    return;
+  }
+
+  statusEl.innerHTML = `Backups folder: <strong>${escapeHtml(dirHandle.name)}</strong> <a href="#" id="restore-change">(change…)</a>`;
+  statusEl.querySelector('#restore-change')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    try {
+      await pickBackupDirectory();
+      await renderRestoreModal();
+    } catch (err) {
+      if (err?.name !== 'AbortError') toast('Could not link folder: ' + err.message, 'error');
+    }
+  });
+
+  listEl.innerHTML = '<div class="loading">Reading folder…</div>';
+  const rows = [];
+  try {
+    for await (const entry of dirHandle.values()) {
+      if (entry.kind !== 'file') continue;
+      if (!entry.name.toLowerCase().endsWith('.csv')) continue;
+      const file = await entry.getFile();
+      rows.push({ name: entry.name, size: file.size, modified: file.lastModified, file });
+    }
+  } catch (err) {
+    listEl.innerHTML = `<div class="empty-state">Could not list folder: ${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  if (rows.length === 0) {
+    listEl.innerHTML = '<div class="empty-state">No .csv backups in this folder yet.</div>';
+    return;
+  }
+
+  rows.sort((a, b) => b.modified - a.modified);
+  const list = document.createElement('div');
+  list.className = 'result-list';
+  rows.forEach((r, idx) => {
+    const row = document.createElement('div');
+    row.className = 'result';
+    row.innerHTML = `
+      <span class="chain-badge">CSV</span>
+      <div class="result-main">
+        <div class="result-pair">${escapeHtml(r.name)}</div>
+        <div class="result-meta">${fmtBytes(r.size)} · ${fmtDate(new Date(r.modified).toISOString())}</div>
+      </div>
+      <div class="result-price"></div>
+      <button type="button" class="select-btn" data-idx="${idx}">Restore</button>
+    `;
+    list.appendChild(row);
+  });
+  listEl.innerHTML = '';
+  listEl.appendChild(list);
+
+  list.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-idx]');
+    if (!btn) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const idx = parseInt(btn.getAttribute('data-idx'), 10);
+    const row = rows[idx];
+    if (!row) return;
+    try {
+      const text = await row.file.text();
+      importCsvFromText(text);
+      closeRestoreModal();
+    } catch (err) {
+      console.error('Restore failed:', err);
+      toast('Restore failed: ' + err.message, 'error');
+    }
+  });
+}
+
+function buildBackupCsv() {
+  const header = ['date', 'type', 'symbol', 'quantity', 'pricePerUnit', 'fees', 'totalCost', 'notes', 'chain', 'tokenAddress', 'pairAddress', 'displayName'];
+  const rows = store.ledger
+    .slice()
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    .map(e => {
+      const type = e.type || 'buy';
+      const cashFlow = Number(e.quantity) * Number(e.pricePerUnit);
+      const total = type === 'sell' ? cashFlow - Number(e.fees || 0) : cashFlow + Number(e.fees || 0);
+      const t = store.tokens[e.symbol] || {};
+      return [
+        e.timestamp, type, e.symbol, e.quantity, e.pricePerUnit, e.fees || 0, total.toFixed(8),
+        (e.notes || '').replace(/"/g, '""'),
+        t.chainId || '', t.tokenAddress || '', t.pairAddress || '', (t.displayName || '').replace(/"/g, '""'),
+      ];
+    });
+  const csv = [header.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  const filename = `dca-backup-${stamp}.csv`;
+  return { csv, filename };
+}
+
+function downloadCsvFallback(csv, filename) {
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function pickBackupDirectory() {
+  // Must be called from a user gesture (button click).
+  const handle = await window.showDirectoryPicker({
+    id: 'dcaBackups',
+    mode: 'readwrite',
+    startIn: 'documents',
+  });
+  await setBackupDirHandle(handle);
+  return handle;
+}
+
+async function runBackup() {
+  if (store.ledger.length === 0) { toast('Nothing to back up.', 'error'); return; }
+  const { csv, filename } = buildBackupCsv();
+
+  if (backendAvailable) {
+    try {
+      const data = await backupViaBackend(csv, filename);
+      toast(`Backup saved: backups/${data.name}`, 'success');
+      return;
+    } catch (err) {
+      console.error('Backend backup failed:', err);
+      toast('Backend backup failed (' + err.message + '). Trying browser fallback…', 'error');
+    }
+  }
+
+  if (!('showDirectoryPicker' in window)) {
+    downloadCsvFallback(csv, filename);
+    toast("Saved to Downloads — no backend and this browser can't write to a folder. Run server.py to fix.", '');
+    return;
+  }
+
+  try {
+    let dirHandle = await getBackupDirHandle();
+    if (!dirHandle || !(await verifyPermission(dirHandle, 'readwrite'))) {
+      dirHandle = await pickBackupDirectory();
+    }
+    const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(csv);
+    await writable.close();
+    toast(`Backup saved: ${dirHandle.name}/${filename}`, 'success');
+  } catch (err) {
+    if (err && err.name === 'AbortError') return;
+    console.error('Backup failed:', err);
+    downloadCsvFallback(csv, filename);
+    toast('Backup to folder failed (' + err.message + '). Saved to Downloads instead.', 'error');
+  }
+}
+
+//
+// ============== RENDER ALL ==============
+//
+function renderAll() {
+  renderDashboard();
+  renderLedger();
+  renderSymbolList();
+  updatePreview();
+}
+
+//
+// ============== EVENT WIRING ==============
+//
+let lastRefreshClick = 0;
+function onRefreshClick() {
+  const now = Date.now();
+  if (now - lastRefreshClick < 5000) {
+    toast('Hold on — refresh is throttled.', '');
+    return;
+  }
+  lastRefreshClick = now;
+  refreshAllPrices();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (!storageAvailable) $('storage-warning').style.display = '';
+  setDefaultDate();
+
+  document.querySelectorAll('.num-input').forEach(attachCommaFormat);
+
+  // Form inputs
+  ['f-symbol', 'f-quantity', 'f-price', 'f-total', 'f-fees'].forEach(id => {
+    $(id).addEventListener('input', updatePreview);
+  });
+  $('f-symbol').addEventListener('input', e => {
+    e.target.value = e.target.value.toUpperCase();
+    updatePreview();
+  });
+  $('use-total-toggle').addEventListener('change', () => { togglePriceInput(); updatePreview(); });
+  $('submit-btn').addEventListener('click', submitPurchase);
+  $('clear-btn').addEventListener('click', clearForm);
+  document.querySelectorAll('#add-section .tabs .tab').forEach(t => {
+    t.addEventListener('click', () => applyTxType(t.dataset.txtype));
+  });
+  applyTxType('buy');
+
+  // Modal
+  $('lookup-close').addEventListener('click', () => closeLookupModal(false));
+  $('lookup-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'lookup-modal') closeLookupModal(false);
+  });
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => switchTab(t.dataset.tab));
+  });
+  $('search-btn').addEventListener('click', () => {
+    if (currentLookupSymbol) doSearch(currentLookupSymbol);
+  });
+  $('addr-lookup-btn').addEventListener('click', doAddressLookup);
+
+  // Delegated click handler for result rows / select buttons (one listener, no per-row binding).
+  $('search-results').addEventListener('click', handleResultClick);
+  $('address-results').addEventListener('click', handleResultClick);
+
+  // Edit-entry modal
+  $('edit-close').addEventListener('click', closeEditModal);
+  $('edit-cancel-btn').addEventListener('click', closeEditModal);
+  $('edit-save-btn').addEventListener('click', saveEditedEntry);
+  $('edit-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'edit-modal') closeEditModal();
+  });
+  $('e-symbol').addEventListener('input', e => { e.target.value = e.target.value.toUpperCase(); });
+  $('e-use-total-toggle').addEventListener('change', toggleEditPriceInput);
+  document.querySelectorAll('#edit-modal .tabs .tab').forEach(t => {
+    t.addEventListener('click', () => applyEditTxType(t.dataset.etxtype));
+  });
+
+  // Ledger
+  $('ledger-filter').addEventListener('change', renderLedger);
+  $('backup-btn').addEventListener('click', runBackup);
+  $('restore-btn').addEventListener('click', openRestoreModal);
+  $('restore-file-input').addEventListener('change', handleImportFile);
+
+  // Restore modal
+  $('restore-close').addEventListener('click', closeRestoreModal);
+  $('restore-cancel-btn').addEventListener('click', closeRestoreModal);
+  $('restore-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'restore-modal') closeRestoreModal();
+  });
+  $('restore-refresh-btn').addEventListener('click', renderRestoreModal);
+  $('restore-browse-elsewhere-btn').addEventListener('click', () => $('restore-file-input').click());
+
+  // Refresh
+  $('refresh-prices-btn').addEventListener('click', onRefreshClick);
+
+  renderAll();
+  refreshAllPrices();
+  detectBackend();
+});
+
+//
+// ============== PWA ==============
+//
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW registration failed:', err));
+}
+
+let _installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _installPrompt = e;
+  const btn = document.getElementById('install-btn');
+  if (btn) btn.style.display = '';
+});
+
+window.addEventListener('appinstalled', () => {
+  _installPrompt = null;
+  const btn = document.getElementById('install-btn');
+  if (btn) btn.style.display = 'none';
+});
+
+document.getElementById('install-btn').addEventListener('click', async () => {
+  if (!_installPrompt) return;
+  _installPrompt.prompt();
+  const { outcome } = await _installPrompt.userChoice;
+  if (outcome === 'accepted') _installPrompt = null;
+});
+</script>
+</body>
+</html>

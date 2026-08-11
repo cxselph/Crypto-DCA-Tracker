@@ -1,0 +1,19 @@
+{
+  "name": "Crypto DCA Tracker",
+  "short_name": "DCA Tracker",
+  "description": "Track your cryptocurrency dollar-cost averaging purchases and average cost basis",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0f1419",
+  "background_color": "#0f1419",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

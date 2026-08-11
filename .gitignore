@@ -1,0 +1,37 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Editor/temp files
+*~
+*.swp
+*.swo
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+*.save
+
+# Backup folders / generated archives
+backups/
+backup/
+
+# Common local environment files
+.env
+.env.*
+
+# Logs and caches
+*.log
+
+# If you have local app bundles or generated folders you do not want in GitHub, add them below
+# Example:
+# dist/
+# build/
+# node_modules/

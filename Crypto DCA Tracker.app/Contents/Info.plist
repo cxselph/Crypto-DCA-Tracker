@@ -12,8 +12,6 @@
 	<string>applet</string>
 	<key>CFBundleIconName</key>
 	<string>applet</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.caseyselph.dca-tracker</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -28,6 +26,8 @@
 		<string>10.6</string>
 	</dict>
 	<key>LSRequiresCarbon</key>
+	<true/>
+	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>This script needs to control other applications to run.</string>

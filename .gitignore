@@ -29,6 +29,8 @@ backup/
 
 # Logs and caches
 *.log
+__pycache__/
+.venv/
 
 # If you have local app bundles or generated folders you do not want in GitHub, add them below
 # Example:

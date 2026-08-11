@@ -112,9 +112,13 @@ class Handler(SimpleHTTPRequestHandler):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
 
-def main():
+def build_server(port=PORT):
     os.makedirs(BACKUP_DIR, exist_ok=True)
-    httpd = HTTPServer(("127.0.0.1", PORT), Handler)
+    return HTTPServer(("127.0.0.1", port), Handler)
+
+
+def main():
+    httpd = build_server()
     print(f"Serving {SCRIPT_DIR} on http://127.0.0.1:{PORT}/")
     print(f"Backups folder: {BACKUP_DIR}")
     print("Open: http://localhost:%d/index.html" % PORT)

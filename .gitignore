@@ -29,6 +29,9 @@ store.json.tmp
 .env
 .env.*
 
+# Local session notes (not for GitHub)
+DEV_NOTES.md
+
 # Logs and caches
 *.log
 __pycache__/

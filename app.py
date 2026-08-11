@@ -25,7 +25,29 @@ def set_dock_icon():
         pass
 
 
+APP_NAME = "Crypto DCA Tracker"
+
+
+def set_app_name():
+    # Without this, the menu bar / "About"/"Hide"/"Quit" items show "Python",
+    # since that's the bundle name of the framework's own GUI launcher stub
+    # that pywebview runs through. Overriding both fixes the menu bar title.
+    try:
+        from Foundation import NSProcessInfo
+
+        NSProcessInfo.processInfo().setProcessName_(APP_NAME)
+    except Exception:
+        pass
+    try:
+        from webview.platforms import cocoa
+
+        cocoa.info["CFBundleName"] = APP_NAME
+    except Exception:
+        pass
+
+
 def main():
+    set_app_name()
     set_dock_icon()
     try:
         httpd = server.build_server()

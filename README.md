@@ -13,9 +13,14 @@ value over time. Runs as a local app with all data stored on your own machine
   and unrealized gain/loss, plus a portfolio total.
 - **Portfolio change pills** — 24h / 7d / 30d portfolio value change,
   computed from periodic snapshots captured automatically as you use the app.
+  A snapshot is only recorded once every held position has a resolved price,
+  so a partial price-fetch failure can't quietly skew these numbers.
 - **Token lookup** — search by name/symbol or paste a contract address to
   find and link a token, backed by the [Dexscreener](https://dexscreener.com)
-  API for live prices.
+  API for live prices. If Dexscreener is unavailable for a token on a chain
+  with RPC support configured (currently PulseChain), the app falls back to
+  reading that token's pool reserves directly from the chain over a set of
+  public RPC endpoints, so pricing keeps working through a Dexscreener outage.
 - **Backup & restore** — export the full ledger and price-history snapshots
   to CSV, and restore from a previous backup (with legacy-format backups
   still supported).

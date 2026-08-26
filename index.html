@@ -1040,6 +1040,136 @@ async function dsPair(chainId, pairAddress) {
 }
 
 //
+// ============== ON-CHAIN RPC FALLBACK (PulseChain only) ==============
+// Used only when DexScreener fails for a symbol. Reads a Uniswap-V2-style pair's
+// reserves directly via eth_call and derives a USD price from them.
+//
+// A pool's reserves only ever give a ratio between two tokens, never an absolute
+// USD value — so the quote side's own USD price has to come from somewhere real.
+// Some tokens that *look* like stablecoins on PulseChain are not reliably pegged
+// (e.g. addresses inherited unmodified from Ethereum's state at PulseChain's
+// genesis fork can trade far from $1), so that can't be assumed. Instead, every
+// time DexScreener successfully prices one of our tracked pairs, we derive and
+// cache the implied USD price of *that pair's quote token* as
+// priceUsd / priceNative, keyed by the quote token's address. That cache is then
+// reused here as the USD anchor, so the on-chain math is always grounded in the
+// last real market data DexScreener gave us rather than a guess.
+//
+
+const PULSECHAIN_RPCS = [
+  'https://rpc.pulsechain.com',
+  'https://pulsechain-rpc.publicnode.com',
+  'https://rpc.pulsechainrpc.com',
+  'https://rpc.pulsechainstats.com',
+  'https://rpc.degenprotocol.io',
+  'https://rpc.swiftnodes.io/rpc/pulsechain',
+];
+let lastGoodRpc = null; // sticky "last good" endpoint, tried first next time
+const RPC_TIMEOUT_MS = 4000;
+
+const SELECTOR_TOKEN0 = '0x0dfe1681';
+const SELECTOR_TOKEN1 = '0xd21220a7';
+const SELECTOR_GET_RESERVES = '0x0902f1ac';
+const SELECTOR_DECIMALS = '0x313ce567';
+
+const decimalsCache = new Map(); // lowercased address -> number
+const quoteUsdCache = new Map(); // lowercased quote-token address -> last known USD price
+
+async function rpcCall(payload) {
+  const urls = lastGoodRpc
+    ? [lastGoodRpc, ...PULSECHAIN_RPCS.filter(u => u !== lastGoodRpc)]
+    : PULSECHAIN_RPCS;
+  for (const url of urls) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, ...payload }),
+        signal: controller.signal,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.result !== undefined) {
+          lastGoodRpc = url;
+          return data.result;
+        }
+      }
+    } catch (_) {
+      // unreachable, timed out, or errored — try the next endpoint
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error('all PulseChain RPCs failed');
+}
+
+function ethCall(to, data) {
+  return rpcCall({ method: 'eth_call', params: [{ to, data }, 'latest'] });
+}
+
+function addressFromWord(word) {
+  return '0x' + word.slice(-40);
+}
+
+async function getDecimals(address) {
+  const key = address.toLowerCase();
+  if (decimalsCache.has(key)) return decimalsCache.get(key);
+  const word = await ethCall(address, SELECTOR_DECIMALS);
+  const decimals = parseInt(word, 16);
+  decimalsCache.set(key, decimals);
+  return decimals;
+}
+
+// Records the USD price implied for a pair's quote token, so it can anchor the
+// on-chain math later if DexScreener goes down. Called on every successful dsPair().
+function recordQuoteUsd(pair) {
+  const quoteAddress = pair?.quoteToken?.address;
+  const priceUsd = pair?.priceUsd ? parseFloat(pair.priceUsd) : null;
+  const priceNative = pair?.priceNative ? parseFloat(pair.priceNative) : null;
+  if (quoteAddress && priceUsd != null && priceNative > 0) {
+    quoteUsdCache.set(quoteAddress.toLowerCase(), priceUsd / priceNative);
+  }
+}
+
+// Derives a token's USD price from its pool reserves plus the cached USD anchor
+// for whichever token the pool quotes it in. Returns null if unresolvable (no
+// cached anchor for that quote token yet, or the pool doesn't expose a standard
+// Uniswap-V2 `getReserves()` — e.g. a V3-style pool).
+async function resolveOnChainPrice(symbol) {
+  const link = store.tokens[symbol];
+  if (!link || link.chainId !== 'pulsechain' || !link.pairAddress || !link.tokenAddress) return null;
+
+  const [token0Word, reservesWord] = await Promise.all([
+    ethCall(link.pairAddress, SELECTOR_TOKEN0),
+    ethCall(link.pairAddress, SELECTOR_GET_RESERVES),
+  ]);
+  const token0 = addressFromWord(token0Word);
+  const trackedIsToken0 = token0.toLowerCase() === link.tokenAddress.toLowerCase();
+  const quoteAddress = trackedIsToken0
+    ? addressFromWord(await ethCall(link.pairAddress, SELECTOR_TOKEN1))
+    : token0;
+
+  const quoteUsd = quoteUsdCache.get(quoteAddress.toLowerCase());
+  if (quoteUsd == null) return null; // never seen a successful DexScreener price for this quote token
+
+  const words = reservesWord.slice(2).match(/.{1,64}/g);
+  if (!words || words.length < 2) return null;
+  const reserve0 = BigInt('0x' + words[0]);
+  const reserve1 = BigInt('0x' + words[1]);
+  const [reserveTracked, reserveQuote] = trackedIsToken0 ? [reserve0, reserve1] : [reserve1, reserve0];
+  if (reserveTracked === 0n) return null;
+
+  const [trackedDecimals, quoteDecimals] = await Promise.all([
+    getDecimals(link.tokenAddress),
+    getDecimals(quoteAddress),
+  ]);
+  const rawRatio = (Number(reserveQuote) / 10 ** quoteDecimals) / (Number(reserveTracked) / 10 ** trackedDecimals);
+  return rawRatio * quoteUsd;
+}
+
+//
 // ============== UI HELPERS ==============
 //
 function $(id) { return document.getElementById(id); }
@@ -1740,7 +1870,8 @@ function selectPair(p, finalLabel) {
   // Seed cache so the dashboard shows a price immediately.
   if (p.priceUsd) {
     priceCache.set(`${p.chainId}/${p.pairAddress}`, { data: p, ts: Date.now() });
-    livePrices[label] = { priceUsd: parseFloat(p.priceUsd) };
+    livePrices[label] = { priceUsd: parseFloat(p.priceUsd), source: 'dexscreener' };
+    recordQuoteUsd(p); // warm the on-chain fallback's USD anchor for this pair's quote token right away
   }
   saveStore();
   toast(`Linked ${label} → ${p.chainId} ${p.baseToken?.symbol}/${p.quoteToken?.symbol}`, 'success');
@@ -1761,12 +1892,27 @@ const livePrices = {}; // symbol -> { priceUsd, error }
 async function refreshPriceFor(symbol) {
   const link = store.tokens[symbol];
   if (!link) return;
+  let result = null;
+  let dsError = null;
   try {
     const pair = await dsPair(link.chainId, link.pairAddress);
-    livePrices[symbol] = { priceUsd: pair?.priceUsd ? parseFloat(pair.priceUsd) : null };
+    const priceUsd = pair?.priceUsd ? parseFloat(pair.priceUsd) : null;
+    if (priceUsd != null) {
+      result = { priceUsd, source: 'dexscreener' };
+      recordQuoteUsd(pair);
+    }
   } catch (e) {
-    livePrices[symbol] = { priceUsd: null, error: e.message };
+    dsError = e.message;
   }
+  if (!result) {
+    try {
+      const priceUsd = await resolveOnChainPrice(symbol);
+      if (priceUsd != null) result = { priceUsd, source: 'rpc' };
+    } catch (_) {
+      // RPC fallback also unavailable — fall through to the dsError below
+    }
+  }
+  livePrices[symbol] = result || { priceUsd: null, error: dsError || 'no price available' };
   renderDashboard();
 }
 
@@ -1794,6 +1940,20 @@ function computePortfolioValue() {
   return total;
 }
 
+// True only if every currently-held, linked position has a resolved live price.
+// Only symbols with nonzero totalUnits AND a store.tokens link actually contribute
+// to computePortfolioValue(), so those are the only ones that must be priced —
+// closed-out positions and never-linked symbols are excluded, since they'd never
+// get a price and would otherwise block snapshot capture forever. A snapshot taken
+// while some *relevant* position is unpriced (e.g. a partial DexScreener + RPC
+// outage) would understate the portfolio total and permanently skew the
+// 24h/7d/30d change pills.
+function allPositionsPriced() {
+  return allPositions()
+    .filter(p => p.totalUnits && store.tokens[p.symbol])
+    .every(p => livePrices[p.symbol]?.priceUsd != null);
+}
+
 // Snapshot retention: keep entries from the last 90 days at most, cap total at 200.
 const SNAPSHOT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const SNAPSHOT_MAX_COUNT = 200;
@@ -1803,10 +1963,10 @@ function trimSnapshots(snapshots) {
   return snapshots.filter(s => new Date(s.ts).getTime() >= cutoff).slice(-SNAPSHOT_MAX_COUNT);
 }
 
-// Add a portfolio snapshot if the last one is >4 hours old and we have live-priced data.
+// Add a portfolio snapshot if the last one is >4 hours old and every position priced successfully.
 function captureSnapshotIfDue() {
   const value = computePortfolioValue();
-  if (!(value > 0)) return;
+  if (!(value > 0) || !allPositionsPriced()) return;
   const now = new Date();
   const snapshots = store.snapshots || (store.snapshots = []);
   const last = snapshots[snapshots.length - 1];

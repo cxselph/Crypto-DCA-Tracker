@@ -21,7 +21,7 @@ VENV_PYVENV_CFG="$PROJECT_DIR/.venv/pyvenv.cfg"
 
 if [ ! -f "$VENV_PYVENV_CFG" ]; then
   echo "error: $PROJECT_DIR/.venv not found. Create it first:" >&2
-  echo "  python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt" >&2
+  echo "  python3 -m venv .venv && ./.venv/bin/pip install --require-hashes --only-binary=:all: --no-binary=proxy-tools -r requirements.txt" >&2
   exit 1
 fi
 

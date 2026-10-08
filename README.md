@@ -37,8 +37,10 @@ value over time. Runs as a local app with all data stored on your own machine
 
 ```bash
 python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
+./.venv/bin/pip install --require-hashes --only-binary=:all: --no-binary=proxy-tools -r requirements.txt
 ```
+
+That installs exactly the versions and files recorded in `requirements.txt` (see [Dependency updates](#dependency-updates)).
 
 ## Running the app
 
@@ -85,6 +87,18 @@ Then open `http://localhost:8765/index.html`.
 | `server.py` | Local HTTP server: serves the UI and exposes `/api/store` and `/api/backups` endpoints. |
 | `index.html` | The entire UI/app logic (ledger, dashboard, lookup, backup/restore). |
 | `build_app.sh` | Builds/reinstalls the `/Applications` launcher bundle. |
+| `requirements.in` | The two packages the app uses directly. |
+| `requirements.txt` | Hashed lockfile generated from `requirements.in`: every package pinned, every file hash-checked. |
 | `icon.svg` | App icon source. |
 | `store.json` | Durable local data store (gitignored). |
 | `backups/` | CSV backups (gitignored). |
+
+## Dependency updates
+
+House rule: dependencies only change through a reviewed PR.
+
+- **Exact installs:** `requirements.txt` is a hashed lockfile, installed with `./.venv/bin/pip install --require-hashes --only-binary=:all: --no-binary=proxy-tools -r requirements.txt`. Never fall back to a plain `pip install -r`/`--upgrade` to get it working; regenerate the lockfile instead.
+- **One exception to "wheels only":** `proxy-tools` (needed by pywebview) is published only as source, so `--no-binary=proxy-tools` lets pip build it. Its source archive is still hash-checked, but the setuptools that pip fetches to build it isn't (a pip limitation).
+- **To change a version:** edit `requirements.in`, then regenerate the lock with the `uv pip compile` command in its header, using an `--exclude-newer` date about 14 days back. Then recreate `.venv` with the Setup commands and rerun `./build_app.sh`.
+- **Dependabot** (`.github/dependabot.yml`) proposes updates weekly. A release has to be public for 14 days first, and major versions are skipped. Security fixes skip both rules. Never auto-merge them.
+

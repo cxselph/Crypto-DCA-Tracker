@@ -1,0 +1,18 @@
+# Dependabot proposes dependency updates as PRs; nothing merges or installs on its own.
+# A release has to be public for 14 days before it's proposed; security fixes skip that
+# wait and the major-version filter. Never auto-merge. If a PR's hashes don't line up,
+# regenerate requirements.txt with the command in requirements.in instead of loosening it.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]

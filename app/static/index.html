@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Crypto DCA Tracker</title>
+<link rel="icon" href="/icon.svg" />
+<link rel="apple-touch-icon" href="/icon.svg" />
+<meta name="apple-mobile-web-app-title" content="DCA Tracker" />
 <style>
   :root {
     --bg: #0f1419;
@@ -290,6 +293,7 @@
   </div>
   <div class="actions">
     <button id="refresh-prices-btn" class="secondary">Refresh prices</button>
+    <form method="post" action="/logout" style="margin:0;"><button type="submit" class="secondary">Sign out</button></form>
   </div>
 </header>
 
@@ -394,7 +398,7 @@
         </select>
         <button id="restore-btn" class="secondary">Restore</button>
         <button id="backup-btn" class="secondary">Backup</button>
-        <input type="file" id="restore-file-input" accept=".csv,text/csv" style="display:none;" />
+        <input type="file" id="restore-file-input" accept=".csv,text/csv,.json,application/json" style="display:none;" />
       </div>
     </div>
     <div id="ledger-content">
@@ -634,6 +638,7 @@ let backendAvailable = false;
 async function detectBackend() {
   try {
     const res = await fetch('/api/backups', { cache: 'no-store' });
+    if (res.status === 401) { location.href = '/login'; return; }
     if (!res.ok) return;
     const data = await res.json();
     if (data && Array.isArray(data.files)) backendAvailable = true;
@@ -719,57 +724,107 @@ function saveStore() {
   persistToBackend();
 }
 
-// The browser's own storage (localStorage) isn't reliably durable inside the
-// native app window (WKWebView can drop it across relaunches), so whenever a
-// backend is available we also write straight to store.json on disk, which is
-// the actual source of truth on the next load. See syncStoreFromBackend().
+// store.json on the server is the source of truth; localStorage is only this
+// device's cache. Every save says which version of store.json it builds on
+// (If-Match). If another device saved since, the server refuses (409) and sends
+// its copy, which replaces this one, so an old tab can never overwrite newer data.
+let storeVersion = null;   // the server's version this page last loaded or saved
+let saveInFlight = false;
+let savePending = false;
 let backendPersistFailWarned = false;
+
 function persistToBackend() {
-  if (!backendAvailable) return;
+  if (!backendAvailable || storeVersion === null) return;
+  if (saveInFlight) { savePending = true; return; }
+  saveInFlight = true;
+  savePending = false;
   fetch('/api/store', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'If-Match': '"' + storeVersion + '"' },
     body: JSON.stringify(store),
-  }).then(res => {
+  }).then(async res => {
+    if (res.status === 401) { location.href = '/login'; return; }
+    if (res.status === 409) {
+      savePending = false;
+      adoptServerStore(await res.json(), etagOf(res));
+      toast('Changed on another device, so this page now shows that copy. Re-enter your last change if it is missing.', 'error');
+      return;
+    }
     if (!res.ok) throw new Error('HTTP ' + res.status);
+    storeVersion = etagOf(res) || storeVersion;
     backendPersistFailWarned = false;
   }).catch(err => {
-    console.error('Failed to persist store to disk', err);
+    console.error('Failed to save the store', err);
     if (!backendPersistFailWarned) {
       backendPersistFailWarned = true;
-      toast('Could not save to disk — your latest changes may not survive closing the app.', 'error');
+      toast('Could not save to the NAS. Your latest change is only on this device until it saves.', 'error');
     }
+  }).finally(() => {
+    saveInFlight = false;
+    if (savePending) persistToBackend();
   });
 }
 
-// On boot, pull the durable on-disk copy (if a backend is available) so the
-// app never opens showing stale/lost data from browser storage alone.
-// If the disk copy is empty but the browser already has data (e.g. the very
-// first run after this feature shipped, or a fresh browser-storage profile),
-// seed the disk copy from the browser instead of wiping it out.
+function etagOf(res) {
+  return (res.headers.get('ETag') || '').replace(/"/g, '') || null;
+}
+
+function adoptServerStore(data, version) {
+  store = {
+    tokens: data.tokens || {},
+    ledger: data.ledger || [],
+    snapshots: data.snapshots || [],
+  };
+  storeVersion = version;
+  try { if (storageAvailable) localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); } catch {}
+  renderAll();
+}
+
+// Load the server's copy: on start, and whenever the page comes back into view
+// (so a tab left open elsewhere picks up changes before you edit in it).
 async function syncStoreFromBackend() {
+  if (saveInFlight || savePending) return;
   try {
     const res = await fetch('/api/store', { cache: 'no-store' });
+    if (res.status === 401) { location.href = '/login'; return; }
     if (!res.ok) return;
     const data = await res.json();
     if (!data || typeof data !== 'object') return;
-    const backendEmpty = !(data.ledger && data.ledger.length) && !(data.tokens && Object.keys(data.tokens).length);
-    const localHasData = store.ledger && store.ledger.length > 0;
-    if (backendEmpty && localHasData) {
-      saveStore(); // seed store.json from the browser's existing data
-      return;
-    }
-    store = {
-      tokens: data.tokens || {},
-      ledger: data.ledger || [],
-      snapshots: data.snapshots || [],
-    };
-    saveStore();
-    renderAll();
+    const version = etagOf(res);
+    if (version && version === storeVersion) return;
+    adoptServerStore(data, version);
     refreshAllPrices();
   } catch (e) {
-    console.warn('Could not sync store from backend', e);
+    console.warn('Could not load the store from the server', e);
   }
+}
+
+// A store.json file (from the old Mac app, or a nightly backup): replaces everything, exactly.
+function importStoreJson(text) {
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error('Not a valid JSON file.'); }
+  if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.ledger)
+      || (data.tokens && typeof data.tokens !== 'object') || (data.snapshots && !Array.isArray(data.snapshots))) {
+    throw new Error('This JSON file is not a tracker store (it needs a ledger).');
+  }
+  const tokens = data.tokens || {}, snapshots = data.snapshots || [];
+  const summary = `${data.ledger.length} ledger entr${data.ledger.length === 1 ? 'y' : 'ies'}, ` +
+    `${Object.keys(tokens).length} linked token${Object.keys(tokens).length === 1 ? '' : 's'} and ` +
+    `${snapshots.length} portfolio snapshot${snapshots.length === 1 ? '' : 's'}`;
+  const replacing = store.ledger.length > 0
+    ? `\n\nThis REPLACES your current ${store.ledger.length} entr${store.ledger.length === 1 ? 'y' : 'ies'}.` : '';
+  if (!confirm(`Restore ${summary}?${replacing}`)) return false;
+  store = { tokens, ledger: data.ledger, snapshots };
+  saveStore();
+  renderAll();
+  refreshAllPrices();
+  toast(`Restored ${summary}.`, 'success');
+  return true;
+}
+
+function importBackupText(text) {
+  if (text.trimStart().startsWith('{')) importStoreJson(text);
+  else importCsvFromText(text);
 }
 
 let store = loadStore();
@@ -2664,7 +2719,7 @@ function handleImportFile(e) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      importCsvFromText(String(reader.result));
+      importBackupText(String(reader.result));
       closeRestoreModal();
     }
     catch (err) {
@@ -2703,7 +2758,7 @@ async function renderRestoreModal() {
   refreshBtn.style.display = '';
 
   if (backendAvailable) {
-    statusEl.innerHTML = `Backups folder: <strong>backups/</strong> <span class="muted">(via local server)</span>`;
+    statusEl.innerHTML = `Backups on the NAS: your Backup button's CSVs and the nightly copies. <strong>Browse elsewhere…</strong> picks a file on this device (a CSV or a store.json).`;
     listEl.innerHTML = '<div class="loading">Reading folder…</div>';
     let data;
     try {
@@ -2713,7 +2768,7 @@ async function renderRestoreModal() {
       return;
     }
     if (!data.files.length) {
-      listEl.innerHTML = '<div class="empty-state">No .csv backups in this folder yet.</div>';
+      listEl.innerHTML = '<div class="empty-state">No backups on the NAS yet.</div>';
       return;
     }
     const list = document.createElement('div');
@@ -2722,7 +2777,7 @@ async function renderRestoreModal() {
       const row = document.createElement('div');
       row.className = 'result';
       row.innerHTML = `
-        <span class="chain-badge">CSV</span>
+        <span class="chain-badge">${f.name.endsWith('.json') ? 'Nightly' : 'CSV'}</span>
         <div class="result-main">
           <div class="result-pair">${escapeHtml(f.name)}</div>
           <div class="result-meta">${fmtBytes(f.size)} · ${fmtDate(new Date(f.modified).toISOString())}</div>
@@ -2742,7 +2797,7 @@ async function renderRestoreModal() {
       const name = btn.getAttribute('data-name');
       try {
         const text = await readBackendBackup(name);
-        importCsvFromText(text);
+        importBackupText(text);
         closeRestoreModal();
       } catch (err) {
         console.error('Restore failed:', err);
@@ -2959,7 +3014,7 @@ async function runBackup() {
   if (backendAvailable) {
     try {
       const data = await backupViaBackend(csv, filename);
-      toast(`Backup saved: backups/${data.name}`, 'success');
+      toast(`Backup saved on the NAS: ${data.name}`, 'success');
       return;
     } catch (err) {
       console.error('Backend backup failed:', err);
@@ -3112,6 +3167,7 @@ function startAutoRefresh() {
   }, AUTO_REFRESH_INTERVAL_MS);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
+    if (backendAvailable) syncStoreFromBackend();
     // If it's been longer than the auto-refresh interval since we last refreshed,
     // fire one now so the tab shows fresh data as soon as it's fronted.
     if (Date.now() - lastAutoRefreshAt >= AUTO_REFRESH_INTERVAL_MS) {

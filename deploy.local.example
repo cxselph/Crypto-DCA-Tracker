@@ -1,0 +1,4 @@
+# Copy to deploy.local (gitignored) and fill in. Read by deploy.sh.
+NAS=<NAS_ADMIN>@<NAS_IP>                # SSH login for the NAS (key auth)
+STACK_DIR=/volume1/docker/crypto-tracker # stack folder on the NAS
+OWNER=1027:100                          # owner of the stack files on the NAS (uid:gid)

@@ -1,104 +1,67 @@
 # Crypto DCA Tracker
 
-A native macOS app for tracking dollar-cost-averaged crypto positions — average
-cost basis, realized/unrealized P&L, staking and LP activity, and portfolio
-value over time. Runs as a local app with all data stored on your own machine
-(no cloud account, no external database).
+Tracks dollar-cost-averaged crypto positions: average cost basis, realized and unrealized P&L, staking and LP activity, and portfolio value over time. It runs on the home Synology NAS at **https://crypto.home** (LAN, or away from home over Tailscale), for one person, signed in with Home Auth.
+
+Until October 2026 it was a Mac app (a pywebview window around a local server, with the ledger in `store.json` on the Mac). That's retired; see [Moving from the Mac app](#moving-from-the-mac-app).
 
 ## Features
 
-- **Transaction ledger** — record Buy, Sell, Stake, Unstake, LP In, LP Out,
-  and LP Fees transactions per token.
-- **Dashboard** — per-token average cost basis, current value, and realized
-  and unrealized gain/loss, plus a portfolio total.
-- **Portfolio change pills** — 24h / 7d / 30d portfolio value change,
-  computed from periodic snapshots captured automatically as you use the app.
-  A snapshot is only recorded once every held position has a resolved price,
-  so a partial price-fetch failure can't quietly skew these numbers.
-- **Token lookup** — search by name/symbol or paste a contract address to
-  find and link a token, backed by the [Dexscreener](https://dexscreener.com)
-  API for live prices. If Dexscreener is unavailable for a token on a chain
-  with RPC support configured (currently PulseChain), the app falls back to
-  reading that token's pool reserves directly from the chain over a set of
-  public RPC endpoints, so pricing keeps working through a Dexscreener outage.
-- **Backup & restore** — export the full ledger and price-history snapshots
-  to CSV, and restore from a previous backup (with legacy-format backups
-  still supported).
-- **Durable local storage** — data is persisted to `store.json` on disk via
-  a small local server, so it survives app restarts independent of the
-  browser engine's own storage.
+- **Transaction ledger:** record Buy, Sell, Stake, Unstake, LP In, LP Out and LP Fees transactions per token.
+- **Dashboard:** per-token average cost basis, current value, and realized and unrealized gain/loss, plus a portfolio total.
+- **Portfolio change pills:** 24h / 7d / 30d portfolio value change, from snapshots taken as you use it. A snapshot is only recorded once every held position has a price, so a partial price failure can't skew them.
+- **Token lookup:** search by name or symbol, or paste a contract address, backed by the [Dexscreener](https://dexscreener.com) API for live prices. If Dexscreener is down for a token on a chain with RPC support (currently PulseChain), it reads the pool reserves from public RPC endpoints instead.
+- **Backup and restore:** the Backup button saves a CSV of the ledger and snapshots on the NAS; Restore lists those and the nightly copies, or takes a CSV or `store.json` from your device (**Browse elsewhere…**).
+- **Any device, one copy:** the ledger lives on the NAS. Every save says which version it builds on, so a tab left open on another device can't overwrite newer changes; it's shown the newer copy instead. Coming back to the page loads what other devices saved.
 
-## Requirements
+## How it runs
 
-- macOS
-- Python 3 (via Homebrew or python.org)
-
-## Setup
-
-```bash
-python3 -m venv .venv
-./.venv/bin/pip install --require-hashes --only-binary=:all: --no-binary=proxy-tools -r requirements.txt
-```
-
-That installs exactly the versions and files recorded in `requirements.txt` (see [Dependency updates](#dependency-updates)).
-
-## Running the app
-
-### Native app window (recommended)
-
-Build the launchable app bundle into `/Applications`:
-
-```bash
-./build_app.sh
-```
-
-Then launch **Crypto DCA Tracker** from `/Applications`, Launchpad, or the
-Dock like any other Mac app.
-
-> macOS blocks app bundles from launching directly out of `~/Documents` (and
-> Desktop/Downloads), so `build_app.sh` installs the launcher to
-> `/Applications` — the project folder itself stays right here. Re-run this
-> script any time the icon needs updating or after a Python upgrade.
-
-### Manual / browser fallback
-
-You can also run the local server directly and open it in a browser:
-
-```bash
-./.venv/bin/python3 server.py
-```
-
-Then open `http://localhost:8765/index.html`.
-
-## Data & backups
-
-- All ledger and price-history data lives in `store.json` in this folder.
-  It's gitignored — this is your financial data, not source code.
-- Use the **Backup** button in the Ledger tab to export a timestamped CSV
-  into `backups/` (also gitignored). Use **Restore** to import from one.
-- Back up `store.json` and/or the `backups/` folder yourself (e.g. Time
-  Machine, a synced drive) if you want off-machine redundancy.
-
-## Project structure
-
-| File | Purpose |
+| Part | What it does |
 |---|---|
-| `app.py` | Native window launcher (pywebview) — runs the server in-process and shows the UI in a real macOS window. |
-| `server.py` | Local HTTP server: serves the UI and exposes `/api/store` and `/api/backups` endpoints. |
-| `index.html` | The entire UI/app logic (ledger, dashboard, lookup, backup/restore). |
-| `build_app.sh` | Builds/reinstalls the `/Applications` launcher bundle. |
-| `requirements.in` | The two packages the app uses directly. |
-| `requirements.txt` | Hashed lockfile generated from `requirements.in`: every package pinned, every file hash-checked. |
-| `icon.svg` | App icon source. |
-| `store.json` | Durable local data store (gitignored). |
-| `backups/` | CSV backups (gitignored). |
+| `app/static/index.html` | The whole app in the browser (ledger, dashboard, lookup, backup/restore). Prices come straight from Dexscreener and the RPCs. |
+| `app/tracker/web.py` | The server: sign-in, the page, `/api/store` (the ledger, version-checked), `/api/backups`. Python standard library only, so the image installs no packages. |
+| `app/tracker/oidc.py` | Sign in with Home Auth (OpenID Connect, PKCE). |
+| `app/tracker/password.py` | The break-glass password for when Home Auth is down. |
+| `app/tracker/nightly.py` | Nightly copies of the ledger. |
+| `compose.yaml`, `app/Dockerfile` | The NAS stack: port 8093 on the NAS itself only, read-only container, no capabilities. |
+| `deploy.sh` | Ships merged code to the NAS (see [Deploying](#deploying)). |
+
+Data on the NAS, in the stack folder `/volume1/docker/crypto-tracker`, owned by the app and closed to other NAS accounts:
+- `data/store.json`: the ledger (tokens, entries, snapshots). `data/backups/`: the Backup button's CSVs. `data/secret.key`: signs sign-ins (made on first start; deleting it signs every device out). `data/password.json`: the break-glass password's hash, if set.
+- `nightly-backups/crypto-tracker-YYYY-MM-DD.json`: a copy each night at 02:15, the last 14 days plus the 1st of each month for a year. Add the stack folder to Hyper Backup for a copy off the NAS.
+
+## Signing in
+
+- **Home Auth** (https://auth.home): client `crypto-tracker`, whose Home Auth policy lets only the tracker's owner through. The app checks again that the Home Auth username matches `HOME_AUTH_USER` in the NAS `.env`.
+- **Break-glass password**, for when Home Auth is down. Set or change it on the NAS (it asks twice and shows nothing):
+  `sudo /usr/local/bin/docker exec -it crypto-tracker python -m tracker.password`
+  (`… python -m tracker.password --remove` takes it away). Five wrong tries pause password sign-in for 15 minutes.
+- Sign-ins last 30 days per device; **Sign out** is in the header.
+
+## Setup (once)
+
+1. UniFi: Host (A) record `crypto.home` → the NAS.
+2. A certificate for `crypto.home` from the `.home` CA, imported in DSM, and a DSM reverse-proxy rule `https://crypto.home` (443) → `http://localhost:8093`, using that certificate.
+3. Home Auth: the `crypto-tracker` client (Home Auth repo), deployed.
+4. On the NAS, `/volume1/docker/crypto-tracker/.env` with `HOME_AUTH_USER=<your Home Auth username>` (`.env.example` lists the optional settings). Without it, Home Auth sign-in is refused.
+5. `./deploy.sh` (needs `deploy.local`, below).
+
+## Moving from the Mac app
+
+1. Open https://crypto.home and sign in.
+2. **Restore** → **Browse elsewhere…** → pick `store.json` from the old project folder on the Mac. It shows how many entries, tokens and snapshots it found, then restores them exactly.
+3. Check the dashboard matches the Mac app, then quit the Mac app and delete **Crypto DCA Tracker** from `/Applications`. The Mac's `store.json`, `.venv/` and `backups/` can be archived or deleted after that.
+
+## Deploying
+
+`./deploy.sh`, from a clean `main` that matches GitHub (it refuses anything else and takes no arguments). It copies `compose.yaml`, `app/` and `lock-folders.sh` to the stack folder (saving the previous files in `backups/` there), locks `data/`, `nightly-backups/` and `.env` to the app's user, rebuilds and starts the container, and fails unless `/healthz` answers. `app/static/build.json` (served at `/build.json`) records the deployed commit. Each machine needs its own gitignored `deploy.local` (copy `deploy.local.example`); it holds the NAS login.
+
+## Tests
+
+`python3 -I -m unittest discover -s tests -v` (standard library only; CI runs it on every PR).
 
 ## Dependency updates
 
 House rule: dependencies only change through a reviewed PR.
 
-- **Exact installs:** `requirements.txt` is a hashed lockfile, installed with `./.venv/bin/pip install --require-hashes --only-binary=:all: --no-binary=proxy-tools -r requirements.txt`. Never fall back to a plain `pip install -r`/`--upgrade` to get it working; regenerate the lockfile instead.
-- **One exception to "wheels only":** `proxy-tools` (needed by pywebview) is published only as source, so `--no-binary=proxy-tools` lets pip build it. Its source archive is still hash-checked, but the setuptools that pip fetches to build it isn't (a pip limitation).
-- **To change a version:** edit `requirements.in`, then regenerate the lock with the `uv pip compile` command in its header, using an `--exclude-newer` date about 14 days back. Then recreate `.venv` with the Setup commands and rerun `./build_app.sh`.
-- **Dependabot** (`.github/dependabot.yml`) proposes updates weekly. A release has to be public for 14 days first, and major versions are skipped. Security fixes skip both rules. Never auto-merge them.
-
+- The app has no Python packages. What it depends on is the base image in `app/Dockerfile` (pinned by digest) and the CI actions (pinned by commit SHA).
+- **Dependabot** (`.github/dependabot.yml`) proposes updates weekly: base-image digests and patch versions, and action updates, each public for 14 days first. Never auto-merge them. A new Python minor version is a deliberate PR of its own.

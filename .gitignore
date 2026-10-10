@@ -19,11 +19,19 @@
 *.rej
 *.save
 
-# Backup folders / generated archives
+# Data: never commit (store.json is the ledger; data/ and nightly-backups/ live on the NAS)
 backups/
 backup/
 store.json
 store.json.tmp
+data/
+nightly-backups/
+
+# Local deploy settings (NAS login); see deploy.local.example
+deploy.local
+
+# Written by deploy.sh: which commit is deployed
+app/static/build.json
 
 # Common local environment files
 .env

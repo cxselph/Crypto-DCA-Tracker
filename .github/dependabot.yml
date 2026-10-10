@@ -1,18 +1,21 @@
-# Dependabot proposes dependency updates as PRs; nothing merges or installs on its own.
-# A release has to be public for 14 days before it's proposed; security fixes skip that
-# wait and the major-version filter. Never auto-merge. If a PR's hashes don't line up,
-# regenerate requirements.txt with the command in requirements.in instead of loosening it.
+# Dependabot proposes updates as PRs; nothing merges or installs on its own. Never auto-merge.
+# A release has to be public for 14 days before it's proposed; security fixes skip that wait.
+# The app has no Python packages (standard library only), so this covers the pinned base image
+# (app/Dockerfile, by digest) and the CI actions (by commit SHA).
 version: 2
 updates:
-  - package-ecosystem: "pip"
-    directory: "/"
+  - package-ecosystem: "docker"
+    directory: "/app"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 14
     ignore:
       - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14

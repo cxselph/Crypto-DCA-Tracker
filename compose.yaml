@@ -1,0 +1,35 @@
+# Crypto DCA Tracker stack (https://crypto.home). Optional settings come from .env on the NAS (.env.example).
+# The ledger lives in ./data and nightly backups in ./nightly-backups; deploy.sh never ships or overwrites them.
+services:
+  web:
+    build: ./app
+    image: crypto-tracker:latest
+    container_name: crypto-tracker
+    restart: unless-stopped
+    user: "1027:100" # same as OWNER in deploy.local, so the app can write ./data
+    environment:
+      DATA_DIR: /data
+      BACKUP_DIR: /backups
+      NIGHTLY_BACKUP_TIME: ${NIGHTLY_BACKUP_TIME:-02:15}
+      TZ: ${TZ:-America/Detroit}
+      HTTPS_ONLY: "1" # only reached through the DSM reverse proxy's https://crypto.home
+      # Sign in with Home Auth (README). Only this Home Auth user gets in; set it in .env.
+      HOME_AUTH_USER: ${HOME_AUTH_USER:-}
+      OIDC_ISSUER: ${OIDC_ISSUER-https://auth.home}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-https://crypto.home/oidc/callback}
+      OIDC_CLIENT_ID: crypto-tracker
+      OIDC_CA_FILE: /etc/home-ca.crt
+    volumes:
+      - ./data:/data
+      - ./nightly-backups:/backups # the last 14 days plus the first of each month for a year
+      # Home Auth's public CA certificate (never a key), so sign-in can check https://auth.home.
+      - ${HOME_AUTH_CA:-/volume1/docker/home-auth/config/home-ca.crt}:/etc/home-ca.crt:ro
+    ports:
+      - "127.0.0.1:8093:8000" # only the NAS itself: the DSM reverse proxy (https://crypto.home) is the way in
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

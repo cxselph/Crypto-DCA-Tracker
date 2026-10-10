@@ -10,6 +10,7 @@ Crypto DCA Tracker: one person's crypto ledger on the Synology NAS at https://cr
 - `app/tracker/` is standard library only, on purpose: no pip packages in the image. Ask before adding one.
 - Sign-in: Home Auth client `crypto-tracker` (Home Auth repo; its policy names the one allowed user) plus the `HOME_AUTH_USER` check in `oidc.claims_problem`; break-glass password in `password.py`. Every route except `/healthz`, `/login`, `/oidc/*`, `/icon.svg` and `/build.json` needs a session.
 - `/api/store` saves only with `If-Match` equal to the current version (hash of store.json); keep that, it's what stops a stale tab overwriting newer data. Only explicitly listed files are served; never serve a directory.
+- Backups (`backup.py`, README "Backups and restore"): one JSON file = the store. `verify()` is the one check for nightly copies, uploads and restores; nightly + catch-up thread in the one server process; prune never touches `*-before-restore-*`. A restore saves the current data first, then `App.new_epoch()` signs every session out (sessions carry `ep`; no epoch file = no epoch, so sessions from before the first restore stay valid). `backup_status.json` and `session_epoch` live in `data/` and are never part of a backup.
 - Tests: `python3 -I -m unittest discover -s tests -v`; CI runs them.
 
 ## Deploying

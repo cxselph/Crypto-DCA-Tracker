@@ -10,7 +10,7 @@ Until October 2026 it was a Mac app (a pywebview window around a local server, w
 - **Dashboard:** per-token average cost basis, current value, and realized and unrealized gain/loss, plus a portfolio total.
 - **Portfolio change pills:** 24h / 7d / 30d portfolio value change, from snapshots taken as you use it. A snapshot is only recorded once every held position has a price, so a partial price failure can't skew them.
 - **Token lookup:** search by name or symbol, or paste a contract address, backed by the [Dexscreener](https://dexscreener.com) API for live prices. If Dexscreener is down for a token on a chain with RPC support (currently PulseChain), it reads the pool reserves from public RPC endpoints instead.
-- **Backup and restore:** the Backup button saves a CSV of the ledger and snapshots on the NAS; Restore lists those and the nightly copies, or takes a CSV or `store.json` from your device (**Browse elsewhere…**).
+- **Backup and restore:** see [Backups and restore](#backups-and-restore).
 - **Any device, one copy:** the ledger lives on the NAS. Every save says which version it builds on, so a tab left open on another device can't overwrite newer changes; it's shown the newer copy instead. Coming back to the page loads what other devices saved.
 
 ## How it runs
@@ -18,16 +18,26 @@ Until October 2026 it was a Mac app (a pywebview window around a local server, w
 | Part | What it does |
 |---|---|
 | `app/static/index.html` | The whole app in the browser (ledger, dashboard, lookup, backup/restore). Prices come straight from Dexscreener and the RPCs. |
-| `app/tracker/web.py` | The server: sign-in, the page, `/api/store` (the ledger, version-checked), `/api/backups`. Python standard library only, so the image installs no packages. |
+| `app/tracker/web.py` | The server: sign-in, the page, `/api/store` (the ledger, version-checked), backup and restore routes. Python standard library only, so the image installs no packages. |
 | `app/tracker/oidc.py` | Sign in with Home Auth (OpenID Connect, PKCE). |
 | `app/tracker/password.py` | The break-glass password for when Home Auth is down. |
-| `app/tracker/nightly.py` | Nightly copies of the ledger. |
+| `app/tracker/backup.py` | Backups: the check every backup and restore uses, nightly copies, pruning, status, restore. |
 | `compose.yaml`, `app/Dockerfile` | The NAS stack: port 8093 on the NAS itself only, read-only container, no capabilities. |
 | `deploy.sh` | Ships merged code to the NAS (see [Deploying](#deploying)). |
 
 Data on the NAS, in the stack folder `/volume1/docker/crypto-tracker`, owned by the app and closed to other NAS accounts:
-- `data/store.json`: the ledger (tokens, entries, snapshots). `data/backups/`: the Backup button's CSVs. `data/secret.key`: signs sign-ins (made on first start; deleting it signs every device out). `data/password.json`: the break-glass password's hash, if set.
-- `nightly-backups/crypto-tracker-YYYY-MM-DD.json`: a copy each night at 02:15, the last 14 days plus the 1st of each month for a year. Add the stack folder to Hyper Backup for a copy off the NAS.
+- `data/store.json`: the ledger (tokens, entries, snapshots). `data/backup_status.json`: the last nightly run. `data/session_epoch`: changed by a restore, which signs every device out. `data/backups/`: CSVs from before downloads existed, if any. `data/secret.key`: signs sign-ins (made on first start; deleting it signs every device out). `data/password.json`: the break-glass password's hash, if set.
+- `nightly-backups/`: nightly copies and before-restore copies (see below). Add the stack folder to Hyper Backup for a copy off the NAS.
+
+## Backups and restore
+
+A backup is one JSON file holding everything (tokens, ledger, portfolio snapshots), in the same format as the old Mac app's `store.json`, so any of them restores exactly.
+
+- **Download backup** (Ledger section) saves `crypto-tracker-YYYY-MM-DD-HHMM.json` to your device, any time.
+- **Nightly**, at 02:30 (`NIGHTLY_BACKUP_TIME`, container time from `TZ`), into `nightly-backups/crypto-tracker-YYYY-MM-DD.json`, plus a catch-up about 3 minutes after the app starts when the newest is over a day old. Each one is read back and checked with the same check a restore uses. The last 14 days are kept, plus the 1st of each month for a year.
+- **Status:** Restore shows the last nightly backup (when, and how many entries, tokens and snapshots it held) or the last failure. A failure, or no backup for two days, also puts a red warning across the top of the page. Each run is logged too (`docker compose logs`).
+- **Restore** (Ledger → Restore): pick a backup on the NAS, or **Browse elsewhere…** for a file on your device. It's checked first and shows what's in it; nothing changes unless you then confirm. A damaged file or one that isn't a tracker backup is refused. Restoring saves the current data first as `nightly-backups/crypto-tracker-before-restore-YYYYMMDD-HHMMSS.json` (never pruned; restore it to undo), puts the backup in place, and signs every device out. Older files without tokens or snapshots get those as empty.
+- A CSV picked there (the old export format) is imported into the ledger instead, as before.
 
 ## Signing in
 

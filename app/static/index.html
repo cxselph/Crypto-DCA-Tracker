@@ -297,6 +297,7 @@
   </div>
 </header>
 
+<div id="backup-warning" style="display:none; background:#3a1818; border-bottom:1px solid #6b1f1f; color:#fca5a5; padding:10px 24px; font-size:13px;"></div>
 <div id="storage-warning" style="display:none; background:#3a2618; border-bottom:1px solid #6b3a1f; color:#fbbf24; padding:10px 24px; font-size:13px;">
   ⚠ Browser storage is disabled in this view (the page is loaded via a <code>data:</code> URL). Your data will be lost on refresh. To use the app for real, save <code>index.html</code> to your computer and open it directly from disk.
 </div>
@@ -397,7 +398,7 @@
           <option value="">All symbols</option>
         </select>
         <button id="restore-btn" class="secondary">Restore</button>
-        <button id="backup-btn" class="secondary">Backup</button>
+        <button id="backup-btn" class="secondary" title="Download an exact copy of all your data">Download backup</button>
         <input type="file" id="restore-file-input" accept=".csv,text/csv,.json,application/json" style="display:none;" />
       </div>
     </div>
@@ -542,6 +543,7 @@
       <button class="modal-close" id="restore-close">&times;</button>
     </div>
     <div class="modal-body">
+      <div id="backup-status" style="font-size:13px; margin-bottom:12px;"></div>
       <div id="restore-folder-status" class="muted" style="font-size:13px; margin-bottom:12px;"></div>
       <div style="display:flex; gap:8px; margin-bottom:12px;">
         <button id="restore-refresh-btn" class="secondary">Refresh list</button>
@@ -646,20 +648,6 @@ async function detectBackend() {
     backendAvailable = false;
   }
   if (backendAvailable) await syncStoreFromBackend();
-}
-
-async function backupViaBackend(csv, filename) {
-  const res = await fetch('/api/backup?name=' + encodeURIComponent(filename), {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/csv' },
-    body: csv,
-  });
-  if (!res.ok) {
-    let msg = 'HTTP ' + res.status;
-    try { const e = await res.json(); if (e?.error) msg = e.error; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
 }
 
 async function listBackendBackups() {
@@ -799,31 +787,81 @@ async function syncStoreFromBackend() {
   }
 }
 
-// A store.json file (from the old Mac app, or a nightly backup): replaces everything, exactly.
-function importStoreJson(text) {
-  let data;
-  try { data = JSON.parse(text); } catch { throw new Error('Not a valid JSON file.'); }
-  if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.ledger)
-      || (data.tokens && typeof data.tokens !== 'object') || (data.snapshots && !Array.isArray(data.snapshots))) {
-    throw new Error('This JSON file is not a tracker store (it needs a ledger).');
-  }
-  const tokens = data.tokens || {}, snapshots = data.snapshots || [];
-  const summary = `${data.ledger.length} ledger entr${data.ledger.length === 1 ? 'y' : 'ies'}, ` +
-    `${Object.keys(tokens).length} linked token${Object.keys(tokens).length === 1 ? '' : 's'} and ` +
-    `${snapshots.length} portfolio snapshot${snapshots.length === 1 ? '' : 's'}`;
-  const replacing = store.ledger.length > 0
-    ? `\n\nThis REPLACES your current ${store.ledger.length} entr${store.ledger.length === 1 ? 'y' : 'ies'}.` : '';
-  if (!confirm(`Restore ${summary}?${replacing}`)) return false;
-  store = { tokens, ledger: data.ledger, snapshots };
-  saveStore();
-  renderAll();
-  refreshAllPrices();
-  toast(`Restored ${summary}.`, 'success');
-  return true;
+// ---------- Backups: status, check and restore (the server does the work) ----------
+
+async function fetchBackupStatus() {
+  const res = await fetch('/api/backup/status', { cache: 'no-store' });
+  if (res.status === 401) { location.href = '/login'; return null; }
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
 }
 
-function importBackupText(text) {
-  if (text.trimStart().startsWith('{')) importStoreJson(text);
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// One line about the nightly backups: the last good one, or the last failure.
+function backupStatusHtml(info) {
+  const st = (info && info.status) || {};
+  if (info && !info.nightly) return '<span class="muted">Nightly backups are off (no BACKUP_DIR).</span>';
+  const ok = st.last_ok, err = st.last_error;
+  let html = '';
+  if (err && (!ok || err.at > ok.at)) {
+    html += `<div style="color:var(--danger);">⚠ The last nightly backup FAILED (${escapeHtml(fmtDate(err.at))}): ${escapeHtml(err.message)}</div>`;
+  }
+  if (ok) {
+    const r = ok.report || {};
+    html += `<div>Last nightly backup: <strong>${escapeHtml(fmtDate(ok.at))}</strong>, checked: ${plural(r.entries, 'entry', 'entries')}, ${plural(r.tokens, 'linked token', 'linked tokens')}, ${plural(r.snapshots, 'snapshot', 'snapshots')} <span class="muted">(${escapeHtml(ok.file)})</span></div>`;
+  } else if (!err) {
+    html += `<div class="muted">No nightly backup yet. The first runs a few minutes after the app starts, then nightly at ${escapeHtml(info.time)}.</div>`;
+  }
+  return html;
+}
+
+// A warning across the top when backups are failing or haven't run for two days.
+async function checkBackupHealth() {
+  let info;
+  try { info = await fetchBackupStatus(); } catch { return; }
+  if (!info || !info.nightly) return;
+  const st = info.status || {}, ok = st.last_ok, err = st.last_error;
+  const el = $('backup-warning');
+  let msg = '';
+  if (err && (!ok || err.at > ok.at)) msg = `⚠ Nightly backup failed (${fmtDate(err.at)}): ${err.message}. Download a backup from the Ledger section until it's fixed.`;
+  else if (ok && Date.now() - new Date(ok.at).getTime() > 2 * 24 * 3600 * 1000) msg = `⚠ No nightly backup since ${fmtDate(ok.at)}.`;
+  el.textContent = msg;
+  el.style.display = msg ? '' : 'none';
+}
+
+function describeReport(r) {
+  let text = `${plural(r.entries, 'ledger entry', 'ledger entries')} (${plural(r.symbols, 'symbol', 'symbols')}), ` +
+    `${plural(r.tokens, 'linked token', 'linked tokens')}, ${plural(r.snapshots, 'portfolio snapshot', 'portfolio snapshots')}`;
+  if (r.newest_entry) text += `\nNewest entry: ${fmtDate(r.newest_entry)}`;
+  if (r.newest_snapshot) text += `\nNewest snapshot: ${fmtDate(r.newest_snapshot)}`;
+  return text;
+}
+
+// Check a backup (a name on the NAS, or a file's contents), then restore it only after a confirmation.
+async function checkThenRestore({ name, body, label }) {
+  const qs = name ? '?name=' + encodeURIComponent(name) : '';
+  const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body || '' };
+  let res = await fetch('/api/restore/check' + qs, opts);
+  if (res.status === 401) { location.href = '/login'; return; }
+  let out = await res.json().catch(() => ({}));
+  if (!res.ok || !out.ok) throw new Error(out.error || 'HTTP ' + res.status);
+  const current = `${store.ledger.length} ${store.ledger.length === 1 ? 'entry' : 'entries'}`;
+  const sure = confirm(`${label} is a good backup:\n\n${describeReport(out.report)}\n\n` +
+    `OK = RESTORE it. This replaces your current data (${current}); that's saved on the NAS first, so the restore ` +
+    `can be undone. Every device, this one too, is signed out.\n\nCancel = only checked, nothing changes.`);
+  if (!sure) { toast('Checked only; nothing changed.', ''); return; }
+  res = await fetch('/api/restore' + (qs ? qs + '&' : '?') + 'confirm=RESTORE', opts);
+  out = await res.json().catch(() => ({}));
+  if (!res.ok || !out.ok) throw new Error(out.error || 'HTTP ' + res.status);
+  try { if (storageAvailable) localStorage.removeItem(STORAGE_KEY); } catch {}
+  location.href = '/login?restored=' + encodeURIComponent(out.before);
+}
+
+// A file picked on this device: a JSON backup (a download, a nightly copy, the Mac app's store.json) restores
+// through the server; a CSV is imported into the ledger here, as before.
+async function importBackupText(text, label) {
+  if (text.trimStart().startsWith('{')) await checkThenRestore({ body: text, label });
   else importCsvFromText(text);
 }
 
@@ -2717,9 +2755,9 @@ function handleImportFile(e) {
   const file = e.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
-      importBackupText(String(reader.result));
+      await importBackupText(String(reader.result), `“${file.name}”`);
       closeRestoreModal();
     }
     catch (err) {
@@ -2758,7 +2796,10 @@ async function renderRestoreModal() {
   refreshBtn.style.display = '';
 
   if (backendAvailable) {
-    statusEl.innerHTML = `Backups on the NAS: your Backup button's CSVs and the nightly copies. <strong>Browse elsewhere…</strong> picks a file on this device (a CSV or a store.json).`;
+    $('backup-status').innerHTML = '<span class="muted">Reading backup status…</span>';
+    fetchBackupStatus().then(info => { if (info) $('backup-status').innerHTML = backupStatusHtml(info); })
+      .catch(err => { $('backup-status').textContent = 'Could not read the backup status: ' + err.message; });
+    statusEl.innerHTML = `Backups on the NAS: <strong>Restore</strong> checks one first and shows what's in it. <strong>Browse elsewhere…</strong> picks a file on this device: a downloaded backup, the Mac app's store.json, or a CSV to import.`;
     listEl.innerHTML = '<div class="loading">Reading folder…</div>';
     let data;
     try {
@@ -2777,13 +2818,13 @@ async function renderRestoreModal() {
       const row = document.createElement('div');
       row.className = 'result';
       row.innerHTML = `
-        <span class="chain-badge">${f.name.endsWith('.json') ? 'Nightly' : 'CSV'}</span>
+        <span class="chain-badge">${f.kind === 'nightly' ? 'Nightly' : f.kind === 'before-restore' ? 'Before restore' : 'CSV'}</span>
         <div class="result-main">
           <div class="result-pair">${escapeHtml(f.name)}</div>
           <div class="result-meta">${fmtBytes(f.size)} · ${fmtDate(new Date(f.modified).toISOString())}</div>
         </div>
         <div class="result-price"></div>
-        <button type="button" class="select-btn" data-name="${escapeHtml(f.name)}">Restore</button>
+        <button type="button" class="select-btn" data-name="${escapeHtml(f.name)}" data-kind="${escapeHtml(f.kind)}">${f.kind === 'csv' ? 'Import' : 'Restore'}</button>
       `;
       list.appendChild(row);
     });
@@ -2796,8 +2837,8 @@ async function renderRestoreModal() {
       e.preventDefault();
       const name = btn.getAttribute('data-name');
       try {
-        const text = await readBackendBackup(name);
-        importBackupText(text);
+        if (btn.getAttribute('data-kind') === 'csv') importCsvFromText(await readBackendBackup(name));
+        else await checkThenRestore({ name, label: `“${name}”` });
         closeRestoreModal();
       } catch (err) {
         console.error('Restore failed:', err);
@@ -3007,43 +3048,14 @@ async function pickBackupDirectory() {
   return handle;
 }
 
-async function runBackup() {
-  if (store.ledger.length === 0) { toast('Nothing to back up.', 'error'); return; }
-  const { csv, filename } = buildBackupCsv();
-
-  if (backendAvailable) {
-    try {
-      const data = await backupViaBackend(csv, filename);
-      toast(`Backup saved on the NAS: ${data.name}`, 'success');
-      return;
-    } catch (err) {
-      console.error('Backend backup failed:', err);
-      toast('Backend backup failed (' + err.message + '). Trying browser fallback…', 'error');
-    }
-  }
-
-  if (!('showDirectoryPicker' in window)) {
-    downloadCsvFallback(csv, filename);
-    toast("Saved to Downloads — no backend and this browser can't write to a folder. Run server.py to fix.", '');
-    return;
-  }
-
-  try {
-    let dirHandle = await getBackupDirHandle();
-    if (!dirHandle || !(await verifyPermission(dirHandle, 'readwrite'))) {
-      dirHandle = await pickBackupDirectory();
-    }
-    const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(csv);
-    await writable.close();
-    toast(`Backup saved: ${dirHandle.name}/${filename}`, 'success');
-  } catch (err) {
-    if (err && err.name === 'AbortError') return;
-    console.error('Backup failed:', err);
-    downloadCsvFallback(csv, filename);
-    toast('Backup to folder failed (' + err.message + '). Saved to Downloads instead.', 'error');
-  }
+// Download an exact copy of everything (the same format as the nightly backups; Restore takes it back).
+function runBackup() {
+  const a = document.createElement('a');
+  a.href = '/api/backup/download';
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 //
@@ -3149,7 +3161,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   renderAll();
   refreshAllPrices();
-  detectBackend();
+  detectBackend().then(() => { if (backendAvailable) checkBackupHealth(); });
   startAutoRefresh();
 });
 

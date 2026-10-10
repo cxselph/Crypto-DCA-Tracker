@@ -10,7 +10,7 @@ services:
     environment:
       DATA_DIR: /data
       BACKUP_DIR: /backups
-      NIGHTLY_BACKUP_TIME: ${NIGHTLY_BACKUP_TIME:-02:15}
+      NIGHTLY_BACKUP_TIME: ${NIGHTLY_BACKUP_TIME:-02:30}
       TZ: ${TZ:-America/Detroit}
       HTTPS_ONLY: "1" # only reached through the DSM reverse proxy's https://crypto.home
       # Sign in with Home Auth (README). Only this Home Auth user gets in; set it in .env.

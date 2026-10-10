@@ -25,7 +25,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import nightly, oidc, password
+from . import backup, oidc, password
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 STATIC_FILES = {"/": "index.html", "/index.html": "index.html"}
@@ -49,7 +49,7 @@ class Config:
         self.data_dir = Path(env.get("DATA_DIR", "/data"))
         backup_dir = env.get("BACKUP_DIR", "")
         self.backup_dir = Path(backup_dir) if backup_dir else None
-        self.backup_time = env.get("NIGHTLY_BACKUP_TIME", "02:15")
+        self.backup_time = env.get("NIGHTLY_BACKUP_TIME", "02:30")
         self.https_only = env.get("HTTPS_ONLY") == "1"
         self.home_auth_user = env.get("HOME_AUTH_USER", "").strip().lower()
         self.oidc = oidc.Settings(
@@ -122,24 +122,31 @@ class Store:
 
     def read(self):
         with self.lock:
-            raw = self._read_bytes()
+            return self.read_unlocked()
+
+    def read_unlocked(self):
+        raw = self._read_bytes()
         return raw, self.version(raw)
+
+    def replace_unlocked(self, data):
+        """Put this data in place whole, whatever is there (restore; hold self.lock). Returns the new version."""
+        raw = json.dumps(data, separators=(",", ":")).encode()
+        tmp = self.path.with_suffix(".json.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(raw)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, self.path)
+        return self.version(raw)
 
     def write(self, data, expected_version):
         """(True, new version) once saved, or (False, (current bytes, current version)) when it changed."""
-        raw = json.dumps(data, separators=(",", ":")).encode()
         with self.lock:
             current = self._read_bytes()
             if not hmac.compare_digest(self.version(current), expected_version):
                 return False, (current, self.version(current))
-            tmp = self.path.with_suffix(".json.tmp")
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(raw)
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(tmp, self.path)
-        return True, self.version(raw)
+            return True, self.replace_unlocked(data)
 
 
 def valid_store(data):
@@ -154,7 +161,8 @@ class App:
         self.config = config
         config.data_dir.mkdir(parents=True, exist_ok=True)
         self.store = Store(config.data_dir)
-        self.csv_dir = config.data_dir / "backups"  # the page's Backup button
+        self.csv_dir = config.data_dir / "backups"  # CSVs the page's Backup button saved before downloads
+        self.epoch_path = config.data_dir / "session_epoch"  # a restore changes it, signing every device out
         self.failures = []
         self.failures_lock = threading.Lock()
 
@@ -168,26 +176,37 @@ class App:
         with self.failures_lock:
             self.failures.append(time.monotonic())
 
+    def epoch(self):
+        """The current session epoch; None until the first restore (so older sessions stay valid until then)."""
+        try:
+            return self.epoch_path.read_text().strip() or None
+        except FileNotFoundError:
+            return None
+
+    def new_epoch(self):
+        tmp = self.epoch_path.with_suffix(".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(secrets.token_hex(8))
+        os.replace(tmp, self.epoch_path)
+
     def backup_files(self):
-        """The page's CSV backups and the nightly JSON backups, newest first."""
-        files = []
-        for folder in (self.csv_dir, self.config.backup_dir):
-            if not folder or not folder.is_dir():
-                continue
-            for p in folder.iterdir():
-                if p.is_file() and (CSV_NAME.match(p.name) or nightly.NAME.match(p.name)):
+        """Nightly and before-restore backups, and any older CSV exports, newest first."""
+        files = backup.stored_backups(self.config.backup_dir)
+        if self.csv_dir.is_dir():
+            for p in self.csv_dir.iterdir():
+                if p.is_file() and CSV_NAME.match(p.name):
                     st = p.stat()
-                    files.append({"name": p.name, "size": st.st_size, "modified": int(st.st_mtime * 1000)})
+                    files.append({"name": p.name, "kind": "csv", "size": st.st_size,
+                                  "modified": int(st.st_mtime * 1000)})
         files.sort(key=lambda f: f["modified"], reverse=True)
         return files
 
     def backup_path(self, name):
         """Where a backup with this name lives, or None. Names are matched exactly, never joined as paths."""
-        if CSV_NAME.match(name or "") and "/" not in name:
+        if CSV_NAME.match(name or ""):
             return self.csv_dir / name
-        if nightly.NAME.match(name or "") and self.config.backup_dir:
-            return self.config.backup_dir / name
-        return None
+        return backup.stored_backup(self.config.backup_dir, name)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -245,7 +264,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def _user(self):
         s = unsign(self.app.config.secret, "session", self._cookies().get(SESSION_COOKIE))
-        return s and s.get("u")
+        if not s or s.get("ep") != self.app.epoch():  # signed in before the last restore
+            return None
+        return s.get("u")
+
+    def _session_cookie(self, user):
+        payload = {"u": user, "exp": int(time.time()) + SESSION_SECONDS, "ep": self.app.epoch()}
+        return self._cookie(SESSION_COOKIE, sign(self.app.config.secret, "session", payload), SESSION_SECONDS)
 
     def _same_origin(self):
         """POSTs must come from this site's own pages (the session cookie is SameSite=Lax as well)."""
@@ -301,6 +326,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, raw, "application/json", (("ETag", f'"{version}"'),))
         if path == "/api/backups":
             return self._json(200, {"folder": "backups", "files": self.app.backup_files()})
+        if path == "/api/backup/status":
+            return self._json(200, {"status": backup.read_status(self.app.config.data_dir),
+                                    "time": self.app.config.backup_time,
+                                    "nightly": bool(self.app.config.backup_dir)})
+        if path == "/api/backup/download":
+            raw, _ = self.app.store.read()
+            name = f"crypto-tracker-{time.strftime('%Y-%m-%d-%H%M')}.json"
+            return self._send(200, raw, "application/json",
+                              (("Content-Disposition", f'attachment; filename="{name}"'),))
         if path.startswith("/api/backups/"):
             target = self.app.backup_path(urllib.parse.unquote(path[len("/api/backups/"):]))
             if target is None:
@@ -325,19 +359,41 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(401, {"error": "Signed out"})
         if parsed.path == "/api/store":
             return self._save_store()
-        if parsed.path == "/api/backup":
-            name = (urllib.parse.parse_qs(parsed.query).get("name") or [""])[0]
-            if not CSV_NAME.match(name):
-                return self._json(400, {"error": "Invalid filename"})
-            body = self._body()
-            if body is None:
-                return self._json(400, {"error": "Empty or oversized body"})
-            self.app.csv_dir.mkdir(parents=True, exist_ok=True)
-            fd = os.open(self.app.csv_dir / name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(body)
-            return self._json(200, {"ok": True, "name": name, "size": len(body)})
+        if parsed.path in ("/api/restore/check", "/api/restore"):
+            return self._restore(parsed, check_only=parsed.path.endswith("/check"))
         return self._json(404, {"error": "Not found"})
+
+    def _restore(self, parsed, check_only):
+        """Check (read-only) or restore a backup: a stored one by ?name=, or the uploaded file as the body."""
+        query = urllib.parse.parse_qs(parsed.query)
+        name = (query.get("name") or [""])[0]
+        if name:
+            path = backup.stored_backup(self.app.config.backup_dir, name)
+            if path is None:
+                return self._json(404, {"error": "There's no backup by that name on the NAS."})
+            raw = path.read_bytes()
+        else:
+            raw = self._body()
+            if raw is None:
+                return self._json(400, {"error": "No file, or it's over 50 MB."})
+        if check_only:
+            try:
+                _, report = backup.verify(raw)
+            except backup.BackupError as e:
+                return self._json(422, {"ok": False, "error": str(e)})
+            return self._json(200, {"ok": True, "report": report})
+        if (query.get("confirm") or [""])[0] != "RESTORE":
+            return self._json(400, {"error": "Confirm the restore first."})
+        if not self.app.config.backup_dir:
+            return self._json(503, {"error": "Restore needs BACKUP_DIR, for the copy of the current data."})
+        try:
+            report, safety = backup.restore(self.app.store, raw, self.app.config.backup_dir)
+        except backup.BackupError as e:
+            return self._json(422, {"ok": False, "error": str(e)})
+        self.log_error("Restored a backup (%s entries); the data before is in %s", report["entries"], safety)
+        self.app.new_epoch()  # every device, this one too, signs in again
+        return self._json(200, {"ok": True, "report": report, "before": safety},
+                          (self._cookie(SESSION_COOKIE, "", 0),))
 
     def _save_store(self):
         expected = (self.headers.get("If-Match") or "").strip().strip('"')
@@ -361,8 +417,7 @@ class Handler(BaseHTTPRequestHandler):
     # ----- signing in -----
 
     def _start_session(self, user):
-        value = sign(self.app.config.secret, "session", {"u": user, "exp": int(time.time()) + SESSION_SECONDS})
-        return self._redirect("/", (self._cookie(SESSION_COOKIE, value, SESSION_SECONDS),))
+        return self._redirect("/", (self._session_cookie(user),))
 
     def _login_page(self, message="", code=200):
         if self._user():
@@ -372,6 +427,11 @@ class Handler(BaseHTTPRequestHandler):
             message = oidc.MESSAGES.get((query.get("error") or [""])[0], "")
         if not message and query.get("out"):
             message = "You're signed out."
+        before = (query.get("restored") or [""])[0]
+        if not message and before:
+            message = "The backup is restored, and every device was signed out. Sign in again."
+            if backup.SAFETY_NAME.match(before):
+                message += f" The data from just before is saved as {before} (restore that to undo)."
         home_auth = bool(self.app.config.oidc.issuer and self.app.config.oidc.redirect_uri)
         has_password = password.is_set(self.app.config.data_dir)
         self._send(code, login_html(message, home_auth, has_password).encode(), "text/html; charset=utf-8")
@@ -415,8 +475,7 @@ class Handler(BaseHTTPRequestHandler):
         if problem:
             self.log_error("Home Auth sign-in refused: %s", problem)
             return self._redirect(f"/login?error={problem}", (clear,))
-        value = sign(self.app.config.secret, "session", {"u": user, "exp": int(time.time()) + SESSION_SECONDS})
-        return self._redirect("/", (clear, self._cookie(SESSION_COOKIE, value, SESSION_SECONDS)))
+        return self._redirect("/", (clear, self._session_cookie(user)))
 
 
 def login_html(message, home_auth, has_password):
@@ -455,6 +514,6 @@ def main():
     config = Config()
     httpd = make_server(config)
     if config.backup_dir:
-        nightly.start(config.data_dir / "store.json", config.backup_dir, config.backup_time)
+        backup.start(config.data_dir / "store.json", config.backup_dir, config.data_dir, config.backup_time)
     print(f"Crypto DCA Tracker on port {httpd.server_address[1]}", flush=True)
     httpd.serve_forever()

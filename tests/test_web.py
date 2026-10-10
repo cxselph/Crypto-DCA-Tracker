@@ -18,9 +18,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
-from tracker import nightly, oidc, password, web  # noqa: E402
+from tracker import backup, oidc, password, web  # noqa: E402
 
-SAMPLE = {"tokens": {"PLS": {"chainId": "pulsechain"}}, "ledger": [{"id": "a", "symbol": "PLS"}], "snapshots": []}
+SAMPLE = {"tokens": {"PLS": {"chainId": "pulsechain"}}, "ledger": [{"id": "a", "symbol": "PLS", "quantity": 100}], "snapshots": []}
 
 
 class FakeHomeAuth:
@@ -97,8 +97,8 @@ class ServerTest(unittest.TestCase):
         return res, data
 
     def session(self):
-        value = web.sign(self.config.secret, "session", {"u": "owner", "exp": int(time.time()) + 60})
-        return f"{web.SESSION_COOKIE}={value}"
+        payload = {"u": "owner", "exp": int(time.time()) + 60, "ep": self.httpd.app.epoch()}
+        return f"{web.SESSION_COOKIE}={web.sign(self.config.secret, 'session', payload)}"
 
     def load(self):
         res, data = self.request("GET", "/api/store", cookie=self.session())
@@ -129,6 +129,12 @@ class ServerTest(unittest.TestCase):
         for value in (forged, expired, flow, body + ".x" + mac, "nonsense"):
             res, _ = self.request("GET", "/api/store", cookie=f"{web.SESSION_COOKIE}={value}")
             self.assertEqual(res.status, 401, value)
+
+    def test_sessions_from_before_restores_existed_stay_signed_in_until_the_first_restore(self):
+        old = web.sign(self.config.secret, "session", {"u": "owner", "exp": int(time.time()) + 60})  # no "ep"
+        self.assertEqual(self.request("GET", "/api/store", cookie=f"{web.SESSION_COOKIE}={old}")[0].status, 200)
+        self.httpd.app.new_epoch()
+        self.assertEqual(self.request("GET", "/api/store", cookie=f"{web.SESSION_COOKIE}={old}")[0].status, 401)
 
     def test_data_files_are_never_served(self):
         self.load()
@@ -175,32 +181,132 @@ class ServerTest(unittest.TestCase):
 
     # ----- backups -----
 
-    def test_page_backups_and_nightly_copies_are_listed_and_readable(self):
-        res, _ = self.request("POST", "/api/backup?name=dca-backup-1.csv", "a,b\n1,2", {"Content-Type": "text/csv"},
-                              self.session())
-        self.assertEqual(res.status, 200)
-        res, _ = self.request("POST", "/api/backup?name=../x.csv", "a", {"Content-Type": "text/csv"}, self.session())
-        self.assertEqual(res.status, 400)
-        (self.data / "store.json").write_text(json.dumps(SAMPLE))
-        made = nightly.back_up(self.data / "store.json", self.backups, date(2026, 10, 10))
-        res, data = self.request("GET", "/api/backups", cookie=self.session())
-        names = sorted(f["name"] for f in json.loads(data)["files"])
-        self.assertEqual(names, ["crypto-tracker-2026-10-10.json", "dca-backup-1.csv"])
-        res, data = self.request("GET", f"/api/backups/{made.name}", cookie=self.session())
-        self.assertEqual((res.status, json.loads(data)), (200, SAMPLE))
-        res, data = self.request("GET", "/api/backups/dca-backup-1.csv", cookie=self.session())
-        self.assertEqual(data, b"a,b\n1,2")
+    def restore(self, path, body="", cookie=None, query=""):
+        return self.request("POST", path + query, body, {"Content-Type": "application/json"}, cookie or self.session())
 
-    def test_nightly_keeps_two_weeks_and_monthly_firsts_for_a_year(self):
+    def put_store(self, data):
+        (self.data / "store.json").write_text(json.dumps(data))
+
+    def test_download_is_an_exact_copy_that_restores(self):
+        self.put_store(SAMPLE)
+        res, data = self.request("GET", "/api/backup/download", cookie=self.session())
+        self.assertEqual(res.status, 200)
+        self.assertRegex(res.getheader("Content-Disposition"), r'attachment; filename="crypto-tracker-[\d-]+\.json"')
+        self.assertEqual(json.loads(data), SAMPLE)
+        res, out = self.restore("/api/restore/check", data)
+        self.assertEqual(json.loads(out)["report"]["entries"], 1)
+
+    def test_nightly_backup_is_checked_recorded_and_listed(self):
+        self.put_store(SAMPLE)
+        status = backup.run_nightly(self.data / "store.json", self.backups, self.data, date(2026, 10, 10))
+        self.assertEqual(status["last_ok"]["file"], "crypto-tracker-2026-10-10.json")
+        self.assertEqual(status["last_ok"]["report"]["entries"], 1)
+        res, data = self.request("GET", "/api/backup/status", cookie=self.session())
+        self.assertEqual(json.loads(data)["status"]["last_ok"]["report"]["tokens"], 1)
+        res, data = self.request("GET", "/api/backups", cookie=self.session())
+        self.assertEqual([(f["name"], f["kind"]) for f in json.loads(data)["files"]],
+                         [("crypto-tracker-2026-10-10.json", "nightly")])
+        self.assertFalse(backup.overdue(self.backups))
+
+    def test_a_failed_nightly_backup_shows_and_keeps_the_last_good_one(self):
+        self.put_store(SAMPLE)
+        backup.run_nightly(self.data / "store.json", self.backups, self.data, date(2026, 10, 9))
+        (self.data / "store.json").write_text("{damaged")
+        status = backup.run_nightly(self.data / "store.json", self.backups, self.data, date(2026, 10, 10))
+        self.assertIn("damaged", status["last_error"]["message"])
+        self.assertEqual(status["last_ok"]["file"], "crypto-tracker-2026-10-09.json")
+        self.assertFalse((self.backups / "crypto-tracker-2026-10-10.json").exists())
+        res, data = self.request("GET", "/api/backup/status", cookie=self.session())
+        self.assertIn("last_error", json.loads(data)["status"])
+
+    def test_prune_keeps_two_weeks_and_monthly_firsts_and_never_before_restore_copies(self):
         today = date(2026, 10, 10)
         names = [f"crypto-tracker-{d}.json" for d in
                  ("2026-10-09", "2026-09-27", "2026-09-26", "2026-09-01", "2025-11-01", "2025-10-01", "2025-09-15")]
-        self.assertEqual(nightly.to_remove(names + ["other.json"], today),
+        safety = "crypto-tracker-before-restore-20240101-120000.json"
+        self.assertEqual(backup.to_remove(names + [safety, "other.json"], today),
                          ["crypto-tracker-2025-09-15.json", "crypto-tracker-2025-10-01.json",
                           "crypto-tracker-2026-09-26.json"])
-        self.assertIsNone(nightly.back_up(self.data / "store.json", self.backups, today))  # no store yet
+        self.assertEqual(backup.run_nightly(self.data / "store.json", self.backups, self.data, today).get("last_ok"),
+                         None)  # no data yet: nothing to back up, not a failure
+
+    def test_schedule_maths(self):
+        from datetime import datetime
+        self.assertEqual(backup.seconds_until("02:30", datetime(2026, 10, 10, 2, 0)), 1800)
+        self.assertEqual(backup.seconds_until("02:30", datetime(2026, 10, 10, 2, 30)), 24 * 3600)
         with self.assertRaises(ValueError):
-            nightly.seconds_until("25:00")
+            backup.seconds_until("25:00")
+        self.assertTrue(backup.overdue(self.backups))  # none yet
+
+    def test_restore_replaces_data_saves_the_current_copy_and_signs_everyone_out(self):
+        self.put_store(SAMPLE)
+        backup.run_nightly(self.data / "store.json", self.backups, self.data, date(2026, 10, 9))
+        changed = {**SAMPLE, "ledger": SAMPLE["ledger"] + [{"id": "b", "symbol": "HEX", "quantity": 5}]}
+        self.put_store(changed)
+        other_device = self.session()
+        res, data = self.restore("/api/restore", query="?name=crypto-tracker-2026-10-09.json&confirm=RESTORE")
+        out = json.loads(data)
+        self.assertEqual((res.status, out["report"]["entries"]), (200, 1))
+        self.assertIn("Max-Age=0", res.getheader("Set-Cookie"))
+        self.assertEqual(json.loads((self.data / "store.json").read_text()), SAMPLE)
+        self.assertEqual(json.loads((self.backups / out["before"]).read_text()), changed)
+        self.assertRegex(out["before"], backup.SAFETY_NAME)
+        res, _ = self.request("GET", "/api/store", cookie=other_device)
+        self.assertEqual(res.status, 401)  # signed out
+        self.assertEqual(self.request("GET", "/api/store", cookie=self.session())[0].status, 200)  # new sign-in
+        res, page = self.request("GET", f"/login?restored={out['before']}")
+        self.assertIn(b"every device was signed out", page)
+        self.assertIn(out["before"].encode(), page)
+        # The status of this NAS's backups isn't touched by a restore.
+        self.assertEqual(backup.read_status(self.data)["last_ok"]["file"], "crypto-tracker-2026-10-09.json")
+        # The before-restore copy is listed, and restoring it undoes the restore.
+        res, data = self.request("GET", "/api/backups", cookie=self.session())
+        self.assertIn(("before-restore", out["before"]), [(f["kind"], f["name"]) for f in json.loads(data)["files"]])
+        res, _ = self.restore("/api/restore", query=f"?name={out['before']}&confirm=RESTORE")
+        self.assertEqual(json.loads((self.data / "store.json").read_text()), changed)
+
+    def test_restore_from_an_uploaded_file_like_the_mac_apps_store(self):
+        old_mac_store = json.dumps({"ledger": [{"symbol": "PLS", "quantity": "1000", "timestamp": "2026-05-01"}]})
+        res, data = self.restore("/api/restore/check", old_mac_store)
+        report = json.loads(data)["report"]
+        self.assertEqual((report["entries"], report["snapshots"], report["newest_entry"]), (1, 0, "2026-05-01"))
+        res, _ = self.restore("/api/restore", old_mac_store, query="?confirm=RESTORE")
+        self.assertEqual(res.status, 200)
+        restored = json.loads((self.data / "store.json").read_text())
+        self.assertEqual((restored["tokens"], restored["snapshots"]), ({}, []))  # older file: missing parts added
+
+    def test_check_only_and_unconfirmed_restores_change_nothing(self):
+        self.put_store(SAMPLE)
+        other = json.dumps({**SAMPLE, "ledger": []})
+        for path, query in (("/api/restore/check", ""), ("/api/restore", ""), ("/api/restore", "?confirm=yes")):
+            res, _ = self.restore(path, other, query=query)
+            self.assertIn(res.status, (200, 400), path + query)
+        self.assertEqual(json.loads((self.data / "store.json").read_text()), SAMPLE)
+        self.assertFalse(list(self.backups.glob("*before-restore*")) if self.backups.exists() else [])
+        self.assertEqual(self.request("GET", "/api/store", cookie=self.session())[0].status, 200)  # still signed in
+
+    def test_damaged_or_foreign_files_are_refused(self):
+        self.put_store(SAMPLE)
+        for body in ("{damaged", "[1, 2]", json.dumps({"kids": []}), json.dumps({"ledger": [{"quantity": 1}]}),
+                     json.dumps({"ledger": [], "tokens": []}), json.dumps({"ledger": [], "snapshots": [{"ts": 1}]})):
+            for path in ("/api/restore/check", "/api/restore"):
+                res, data = self.restore(path, body, query="?confirm=RESTORE")
+                self.assertEqual(res.status, 422, (path, body))
+                self.assertFalse(json.loads(data)["ok"])
+        self.assertEqual(json.loads((self.data / "store.json").read_text()), SAMPLE)
+
+    def test_stored_backups_by_exact_name_only(self):
+        for name in ("../data/store.json", "crypto-tracker-2026-10-10.json/../x", "secret.key", "store.json"):
+            res, _ = self.restore("/api/restore/check", query="?name=" + urllib.parse.quote(name))
+            self.assertEqual(res.status, 404, name)
+        for path in ("/api/backups/..%2Fstore.json", "/api/backups/secret.key"):
+            self.assertIn(self.request("GET", path, cookie=self.session())[0].status, (400, 404))
+
+    def test_backup_routes_need_sign_in(self):
+        for method, path in (("GET", "/api/backup/download"), ("GET", "/api/backup/status"),
+                             ("POST", "/api/restore/check"), ("POST", "/api/restore?confirm=RESTORE")):
+            res, _ = self.request(method, path, "{}" if method == "POST" else None)
+            self.assertEqual(res.status, 401, path)
 
     # ----- signing in -----
 

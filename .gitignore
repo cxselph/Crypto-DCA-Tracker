@@ -36,6 +36,7 @@ app/static/build.json
 # Common local environment files
 .env
 .env.*
+!.env.example
 
 # Local session notes (not for GitHub)
 DEV_NOTES.md

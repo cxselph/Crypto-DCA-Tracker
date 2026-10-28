@@ -25,7 +25,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import backup, oidc, password
+from . import backup, oidc, password, pulse_rpc
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 STATIC_FILES = {"/": "index.html", "/index.html": "index.html"}
@@ -56,6 +56,9 @@ class Config:
             issuer=env.get("OIDC_ISSUER", ""), redirect_uri=env.get("OIDC_REDIRECT_URI", ""),
             client_id=env.get("OIDC_CLIENT_ID", "crypto-tracker"), ca=env.get("OIDC_CA_FILE", ""))
         self.secret = (env.get("SECRET_KEY") or "").encode() or _stored_secret(self.data_dir)
+        # Our own PulseChain node for the on-chain price fallback (pulse_rpc.py); empty = public RPCs only.
+        self.pulse_rpc_url = env.get("PULSECHAIN_RPC_URL", "").strip()
+        self.pulse_rpc_ca = env.get("PULSECHAIN_RPC_CA_FILE", "")
 
 
 def _stored_secret(data_dir):
@@ -361,7 +364,19 @@ class Handler(BaseHTTPRequestHandler):
             return self._save_store()
         if parsed.path in ("/api/restore/check", "/api/restore"):
             return self._restore(parsed, check_only=parsed.path.endswith("/check"))
+        if parsed.path == "/api/pulsechain-rpc":
+            return self._pulse_rpc()
         return self._json(404, {"error": "Not found"})
+
+    def _pulse_rpc(self):
+        """One allowed eth_call, answered by our own PulseChain node (pulse_rpc.py)."""
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if 0 < length <= pulse_rpc.MAX_REQUEST else None
+        config = self.app.config
+        try:
+            return self._json(200, pulse_rpc.relay(raw, config.pulse_rpc_url, config.pulse_rpc_ca))
+        except pulse_rpc.RelayError as e:
+            return self._json(e.status, {"error": str(e)})
 
     def _restore(self, parsed, check_only):
         """Check (read-only) or restore a backup: a stored one by ?name=, or the uploaded file as the body."""

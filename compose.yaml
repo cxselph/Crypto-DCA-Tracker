@@ -19,10 +19,14 @@ services:
       OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-https://crypto.home/oidc/callback}
       OIDC_CLIENT_ID: crypto-tracker
       OIDC_CA_FILE: /etc/home-ca.crt
+      # Our own PulseChain node, tried first when Dexscreener can't price a PulseChain token (README "Prices").
+      # rpc.home's certificate is from the same .home CA. Set PULSECHAIN_RPC_URL= (empty) in .env to use only the public RPCs.
+      PULSECHAIN_RPC_URL: ${PULSECHAIN_RPC_URL-https://rpc.home}
+      PULSECHAIN_RPC_CA_FILE: /etc/home-ca.crt
     volumes:
       - ./data:/data
       - ./nightly-backups:/backups # the last 14 days plus the first of each month for a year
-      # Home Auth's public CA certificate (never a key), so sign-in can check https://auth.home.
+      # The .home CA's public certificate (never a key), so sign-in can check https://auth.home (and prices https://rpc.home).
       - ${HOME_AUTH_CA:-/volume1/docker/home-auth/config/home-ca.crt}:/etc/home-ca.crt:ro
     ports:
       - "127.0.0.1:8093:8000" # only the NAS itself: the DSM reverse proxy (https://crypto.home) is the way in

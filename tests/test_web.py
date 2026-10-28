@@ -1,4 +1,4 @@
-"""The NAS server: sign-in, the version-checked store, backups and the nightly copies.
+"""The NAS server: sign-in, the version-checked store, backups, the nightly copies and the node relay.
 
 Run: python3 -I -m unittest discover -s tests -v  (standard library only)
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
-from tracker import backup, oidc, password, web  # noqa: E402
+from tracker import backup, oidc, password, pulse_rpc, web  # noqa: E402
 
 SAMPLE = {"tokens": {"PLS": {"chainId": "pulsechain"}}, "ledger": [{"id": "a", "symbol": "PLS", "quantity": 100}], "snapshots": []}
 
@@ -60,6 +60,43 @@ class FakeHomeAuth:
     def close(self):
         self.httpd.shutdown()
         self.httpd.server_close()
+
+
+class FakeNode:
+    """A PulseChain node's JSON-RPC endpoint: records each request and answers with `answer`."""
+
+    def __init__(self):
+        self.requests = []
+        self.answer = {"jsonrpc": "2.0", "id": 1, "result": "0x" + "00" * 31 + "12"}
+        fake = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                fake.requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                data = json.dumps(fake.answer).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+PAIR = "0x" + "ab" * 20
+
+
+def eth_call(to=PAIR, data="0x0902f1ac", method="eth_call", block="latest"):
+    return {"jsonrpc": "2.0", "id": 7, "method": method, "params": [{"to": to, "data": data}, block]}
 
 
 class ServerTest(unittest.TestCase):
@@ -178,6 +215,67 @@ class ServerTest(unittest.TestCase):
         ok = {"If-Match": f'"{v}"', "Origin": "http://crypto.test", "Sec-Fetch-Site": "same-origin"}
         res, _ = self.request("POST", "/api/store", SAMPLE, ok, self.session())
         self.assertEqual(res.status, 200)
+
+    # ----- our own PulseChain node -----
+
+    def use_node(self, url):
+        self.httpd.app.config.pulse_rpc_url = url
+
+    def test_price_reads_are_relayed_to_our_node(self):
+        node = FakeNode()
+        self.addCleanup(node.close)
+        self.use_node(node.url)
+        for selector in sorted(pulse_rpc.ALLOWED_SELECTORS):
+            res, data = self.request("POST", "/api/pulsechain-rpc", eth_call(data=selector), cookie=self.session())
+            self.assertEqual(res.status, 200, selector)
+            self.assertEqual(json.loads(data), {"jsonrpc": "2.0", "id": 1, "result": node.answer["result"]})
+        self.assertEqual(node.requests[-1]["params"], [{"to": PAIR, "data": "0xd21220a7"}, "latest"])
+        # A JSON-RPC error from the node (say, a pool without getReserves) is passed back for the page to skip.
+        node.answer = {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": "execution reverted"}}
+        res, data = self.request("POST", "/api/pulsechain-rpc", eth_call(), cookie=self.session())
+        self.assertEqual((res.status, json.loads(data)["error"]["message"]), (200, "execution reverted"))
+
+    def test_only_the_price_reads_are_relayed(self):
+        node = FakeNode()
+        self.addCleanup(node.close)
+        self.use_node(node.url)
+        refused = [
+            eth_call(method="eth_sendRawTransaction"),
+            eth_call(method="eth_getBalance"),
+            eth_call(data="0xa9059cbb" + "00" * 64),  # transfer(...)
+            eth_call(data="0x0902f1ac00"),
+            eth_call(to="0x1234"),
+            eth_call(block="0x1"),
+            {"jsonrpc": "2.0", "method": "eth_call", "params": [{"to": PAIR, "data": "0x0902f1ac", "from": PAIR}, "latest"]},
+            [eth_call()],
+            "not json",
+        ]
+        for body in refused:
+            res, _ = self.request("POST", "/api/pulsechain-rpc", body, cookie=self.session())
+            self.assertEqual(res.status, 400, body)
+        self.assertEqual(node.requests, [])
+
+    def test_the_relay_needs_a_signed_in_same_site_page(self):
+        node = FakeNode()
+        self.addCleanup(node.close)
+        self.use_node(node.url)
+        res, _ = self.request("POST", "/api/pulsechain-rpc", eth_call())
+        self.assertEqual(res.status, 401)
+        res, _ = self.request("POST", "/api/pulsechain-rpc", eth_call(), {"Origin": "https://evil.example"}, self.session())
+        self.assertEqual(res.status, 403)
+        self.assertEqual(node.requests, [])
+
+    def test_no_node_set_or_node_down_lets_the_page_move_on(self):
+        self.use_node("")
+        res, _ = self.request("POST", "/api/pulsechain-rpc", eth_call(), cookie=self.session())
+        self.assertEqual(res.status, 503)
+        node = FakeNode()
+        url = node.url
+        node.close()
+        self.use_node(url)
+        res, data = self.request("POST", "/api/pulsechain-rpc", eth_call(), cookie=self.session())
+        self.assertEqual(res.status, 502)
+        self.assertIn("didn't answer", json.loads(data)["error"])
 
     # ----- backups -----
 

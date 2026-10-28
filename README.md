@@ -9,7 +9,7 @@ Until October 2026 it was a Mac app (a pywebview window around a local server, w
 - **Transaction ledger:** record Buy, Sell, Stake, Unstake, LP In, LP Out and LP Fees transactions per token.
 - **Dashboard:** per-token average cost basis, current value, and realized and unrealized gain/loss, plus a portfolio total.
 - **Portfolio change pills:** 24h / 7d / 30d portfolio value change, from snapshots taken as you use it. A snapshot is only recorded once every held position has a price, so a partial price failure can't skew them.
-- **Token lookup:** search by name or symbol, or paste a contract address, backed by the [Dexscreener](https://dexscreener.com) API for live prices. If Dexscreener is down for a token on a chain with RPC support (currently PulseChain), it reads the pool reserves from public RPC endpoints instead.
+- **Token lookup:** search by name or symbol, or paste a contract address, backed by the [Dexscreener](https://dexscreener.com) API for live prices. If Dexscreener is down for a token on a chain with RPC support (currently PulseChain), it reads the pool reserves on-chain instead: from our own node first, then public RPC endpoints (see [Prices](#prices)).
 - **Backup and restore:** see [Backups and restore](#backups-and-restore).
 - **Any device, one copy:** the ledger lives on the NAS. Every save says which version it builds on, so a tab left open on another device can't overwrite newer changes; it's shown the newer copy instead. Coming back to the page loads what other devices saved.
 
@@ -21,6 +21,7 @@ Until October 2026 it was a Mac app (a pywebview window around a local server, w
 | `app/tracker/web.py` | The server: sign-in, the page, `/api/store` (the ledger, version-checked), backup and restore routes. Python standard library only, so the image installs no packages. |
 | `app/tracker/oidc.py` | Sign in with Home Auth (OpenID Connect, PKCE). |
 | `app/tracker/password.py` | The break-glass password for when Home Auth is down. |
+| `app/tracker/pulse_rpc.py` | Relays the price fallback's on-chain reads to our own PulseChain node (see [Prices](#prices)). |
 | `app/tracker/backup.py` | Backups: the check every backup and restore uses, nightly copies, pruning, status, restore. |
 | `compose.yaml`, `app/Dockerfile` | The NAS stack: port 8093 on the NAS itself only, read-only container, no capabilities. |
 | `deploy.sh` | Ships merged code to the NAS (see [Deploying](#deploying)). |
@@ -28,6 +29,14 @@ Until October 2026 it was a Mac app (a pywebview window around a local server, w
 Data on the NAS, in the stack folder `/volume1/docker/crypto-tracker`, owned by the app and closed to other NAS accounts:
 - `data/store.json`: the ledger (tokens, entries, snapshots). `data/backup_status.json`: the last nightly run. `data/session_epoch`: changed by a restore, which signs every device out. `data/backups/`: CSVs from before downloads existed, if any. `data/secret.key`: signs sign-ins (made on first start; deleting it signs every device out). `data/password.json`: the break-glass password's hash, if set.
 - `nightly-backups/`: nightly copies and before-restore copies (see below). Add the stack folder to Hyper Backup for a copy off the NAS.
+
+## Prices
+
+Dexscreener prices everything. When it can't price a PulseChain token, the page reads that token's pool reserves on-chain and turns them into a USD price, anchored to the last price Dexscreener gave for the pool's other token.
+
+Those on-chain reads go to **our own node first** (`https://rpc.home`, the PulseChain node in VM 101), then to the public RPCs if it doesn't answer within 3 seconds. The node only answers its own site, so the page can't call it directly: it posts to `/api/pulsechain-rpc` and the server (`pulse_rpc.py`) passes the call on. Only the four read-only calls the fallback makes are relayed (a pair's `token0`, `token1`, `getReserves`, a token's `decimals`, at `latest`), only for a signed-in, same-site page, so this isn't an open door to the node. The server checks `rpc.home`'s certificate against the same .home CA as Home Auth sign-in.
+
+Settings (compose.yaml): `PULSECHAIN_RPC_URL` (default `https://rpc.home`; set it empty in `.env` to use only the public RPCs) and `PULSECHAIN_RPC_CA_FILE`. If the node is down, prices carry on from the public RPCs.
 
 ## Backups and restore
 

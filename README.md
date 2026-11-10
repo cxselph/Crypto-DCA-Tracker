@@ -34,9 +34,9 @@ Data on the NAS, in the stack folder `/volume1/docker/crypto-tracker`, owned by 
 
 Dexscreener prices everything. When it can't price a PulseChain token, the page reads that token's pool reserves on-chain and turns them into a USD price, anchored to the last price Dexscreener gave for the pool's other token.
 
-Those on-chain reads go to **our own node first** (`https://rpc.home`, the PulseChain node in VM 101), then to the public RPCs if it doesn't answer within 3 seconds. The node only answers its own site, so the page can't call it directly: it posts to `/api/pulsechain-rpc` and the server (`pulse_rpc.py`) passes the call on. Only the four read-only calls the fallback makes are relayed (a pair's `token0`, `token1`, `getReserves`, a token's `decimals`, at `latest`), only for a signed-in, same-site page, so this isn't an open door to the node. The server checks `rpc.home`'s certificate against the .home CA (trusted alongside the public CAs, `tracker/tls.py`).
+Those on-chain reads go to **our own node first** (`https://rpc.home.selphfam.com`, the PulseChain node in VM 101), then to the public RPCs if it doesn't answer within 3 seconds. The node only answers its own site, so the page can't call it directly: it posts to `/api/pulsechain-rpc` and the server (`pulse_rpc.py`) passes the call on. Only the four read-only calls the fallback makes are relayed (a pair's `token0`, `token1`, `getReserves`, a token's `decimals`, at `latest`), only for a signed-in, same-site page, so this isn't an open door to the node. The node, `rpc.home.selphfam.com`, has a Let's Encrypt certificate (the server trusts the public CAs plus the .home CA, `tracker/tls.py`).
 
-Settings (compose.yaml): `PULSECHAIN_RPC_URL` (default `https://rpc.home`; set it empty in `.env` to use only the public RPCs) and `PULSECHAIN_RPC_CA_FILE`. If the node is down, prices carry on from the public RPCs.
+Settings (compose.yaml): `PULSECHAIN_RPC_URL` (default `https://rpc.home.selphfam.com`; set it empty in `.env` to use only the public RPCs) and `PULSECHAIN_RPC_CA_FILE`. If the node is down, prices carry on from the public RPCs.
 
 ## Backups and restore
 

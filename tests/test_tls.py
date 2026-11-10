@@ -1,4 +1,4 @@
-"""What the tracker trusts for Home Auth and rpc.home (tracker/tls.py).
+"""What the tracker trusts for Home Auth and the PulseChain node (tracker/tls.py).
 
 Run: python3 -I -m unittest discover -s tests -v  (standard library only; openssl makes the test CA)
 """

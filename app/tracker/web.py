@@ -1,4 +1,4 @@
-"""The Crypto DCA Tracker's server on the NAS (https://crypto.home).
+"""The Crypto DCA Tracker's server on the NAS (https://crypto.home.selphfam.com).
 
 Serves the one-page app (static/index.html) to one person, and keeps their ledger in DATA_DIR/store.json.
 Standard library only, so the image installs no packages.

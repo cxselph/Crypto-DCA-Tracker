@@ -1,6 +1,6 @@
 # Project instructions
 
-Crypto DCA Tracker: one person's crypto ledger on the Synology NAS at https://crypto.home (README).
+Crypto DCA Tracker: one person's crypto ledger on the Synology NAS at https://crypto.home.selphfam.com (README).
 
 ## Sensitive data
 - This repo is PUBLIC. Never commit `store.json`, `data/`, `backups/`, `nightly-backups/`, `.env`, `deploy.local`, real holdings, the Home Auth username, or the NAS address.

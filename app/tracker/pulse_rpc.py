@@ -9,9 +9,10 @@ Home Auth sign-in uses). Standard library only.
 
 import json
 import re
-import ssl
 import urllib.error
 import urllib.request
+
+from .tls import tls_context
 
 # token0(), token1(), getReserves(), decimals()
 ALLOWED_SELECTORS = {"0x0dfe1681", "0xd21220a7", "0x0902f1ac", "0x313ce567"}
@@ -55,7 +56,7 @@ def relay(raw, url, ca=""):
     to, data = check_call(raw)
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_call", "params": [{"to": to, "data": data}, "latest"]})
     req = urllib.request.Request(url, data=body.encode(), headers={"Content-Type": "application/json"})
-    ctx = ssl.create_default_context(cafile=ca or None)
+    ctx = tls_context(ca)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS, context=ctx) as r:
             answer = json.loads(r.read(64 * 1024))

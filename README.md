@@ -1,6 +1,6 @@
 # Crypto DCA Tracker
 
-Tracks dollar-cost-averaged crypto positions: average cost basis, realized and unrealized P&L, staking and LP activity, and portfolio value over time. It runs on the home Synology NAS at **https://crypto.home** (LAN, or away from home over Tailscale), for one person, signed in with Home Auth.
+Tracks dollar-cost-averaged crypto positions: average cost basis, realized and unrealized P&L, staking and LP activity, and portfolio value over time. It runs on the home Synology NAS at **https://crypto.home.selphfam.com** (LAN, or away from home over Tailscale; a Let's Encrypt certificate), for one person, signed in with Home Auth.
 
 Until October 2026 it was a Mac app (a pywebview window around a local server, with the ledger in `store.json` on the Mac). That's retired; see [Moving from the Mac app](#moving-from-the-mac-app).
 
@@ -34,7 +34,7 @@ Data on the NAS, in the stack folder `/volume1/docker/crypto-tracker`, owned by 
 
 Dexscreener prices everything. When it can't price a PulseChain token, the page reads that token's pool reserves on-chain and turns them into a USD price, anchored to the last price Dexscreener gave for the pool's other token.
 
-Those on-chain reads go to **our own node first** (`https://rpc.home`, the PulseChain node in VM 101), then to the public RPCs if it doesn't answer within 3 seconds. The node only answers its own site, so the page can't call it directly: it posts to `/api/pulsechain-rpc` and the server (`pulse_rpc.py`) passes the call on. Only the four read-only calls the fallback makes are relayed (a pair's `token0`, `token1`, `getReserves`, a token's `decimals`, at `latest`), only for a signed-in, same-site page, so this isn't an open door to the node. The server checks `rpc.home`'s certificate against the same .home CA as Home Auth sign-in.
+Those on-chain reads go to **our own node first** (`https://rpc.home`, the PulseChain node in VM 101), then to the public RPCs if it doesn't answer within 3 seconds. The node only answers its own site, so the page can't call it directly: it posts to `/api/pulsechain-rpc` and the server (`pulse_rpc.py`) passes the call on. Only the four read-only calls the fallback makes are relayed (a pair's `token0`, `token1`, `getReserves`, a token's `decimals`, at `latest`), only for a signed-in, same-site page, so this isn't an open door to the node. The server checks `rpc.home`'s certificate against the .home CA (trusted alongside the public CAs, `tracker/tls.py`).
 
 Settings (compose.yaml): `PULSECHAIN_RPC_URL` (default `https://rpc.home`; set it empty in `.env` to use only the public RPCs) and `PULSECHAIN_RPC_CA_FILE`. If the node is down, prices carry on from the public RPCs.
 
@@ -50,7 +50,7 @@ A backup is one JSON file holding everything (tokens, ledger, portfolio snapshot
 
 ## Signing in
 
-- **Home Auth** (https://auth.home): client `crypto-tracker`, whose Home Auth policy lets only the tracker's owner through. The app checks again that the Home Auth username matches `HOME_AUTH_USER` in the NAS `.env`.
+- **Home Auth** (https://auth.home.selphfam.com): client `crypto-tracker`, whose Home Auth policy lets only the tracker's owner through. The app checks again that the Home Auth username matches `HOME_AUTH_USER` in the NAS `.env`.
 - **Break-glass password**, for when Home Auth is down. Set or change it on the NAS (it asks twice and shows nothing):
   `sudo /usr/local/bin/docker exec -it crypto-tracker python -m tracker.password`
   (`… python -m tracker.password --remove` takes it away). Five wrong tries pause password sign-in for 15 minutes.
@@ -58,15 +58,15 @@ A backup is one JSON file holding everything (tokens, ledger, portfolio snapshot
 
 ## Setup (once)
 
-1. UniFi: Host (A) record `crypto.home` → the NAS.
-2. A certificate for `crypto.home` from the `.home` CA, imported in DSM, and a DSM reverse-proxy rule `https://crypto.home` (443) → `http://localhost:8093`, using that certificate.
+1. DNS: nothing to add; the public wildcard `*.home.selphfam.com` points at the NAS (Plex-Dashboard README "HTTPS certificates").
+2. A DSM reverse-proxy rule `https://crypto.home.selphfam.com` (443) → `http://localhost:8093`, using the `*.home.selphfam.com` certificate. (The old `https://crypto.home` rule can stay for a while: signing in from there moves you to the new name first.)
 3. Home Auth: the `crypto-tracker` client (Home Auth repo), deployed.
 4. On the NAS, `/volume1/docker/crypto-tracker/.env` with `HOME_AUTH_USER=<your Home Auth username>` (`.env.example` lists the optional settings). Without it, Home Auth sign-in is refused.
 5. `./deploy.sh` (needs `deploy.local`, below).
 
 ## Moving from the Mac app
 
-1. Open https://crypto.home and sign in.
+1. Open https://crypto.home.selphfam.com and sign in.
 2. **Restore** → **Browse elsewhere…** → pick `store.json` from the old project folder on the Mac. It shows how many entries, tokens and snapshots it found, then restores them exactly.
 3. Check the dashboard matches the Mac app, then quit the Mac app and delete **Crypto DCA Tracker** from `/Applications`. The Mac's `store.json`, `.venv/` and `backups/` can be archived or deleted after that.
 

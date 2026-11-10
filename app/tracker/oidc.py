@@ -12,11 +12,12 @@ import base64
 import hashlib
 import json
 import secrets
-import ssl
 import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+
+from .tls import tls_context
 
 FLOW_SECONDS = 600
 _discovery = {}
@@ -43,8 +44,8 @@ class Settings:
 
 
 def _fetch_json(url, form=None, ca=""):
-    """GET (or POST a form) over TLS checked against the Home Auth CA, and return the JSON."""
-    ctx = ssl.create_default_context(cafile=ca or None)
+    """GET (or POST a form) over TLS checked against the public CAs and the house CA, and return the JSON."""
+    ctx = tls_context(ca)
     data = urllib.parse.urlencode(form).encode() if form is not None else None
     req = urllib.request.Request(url, data=data, headers={"Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=15, context=ctx) as r:

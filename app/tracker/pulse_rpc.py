@@ -1,4 +1,4 @@
-"""Relays the page's on-chain price lookups to our own PulseChain node (PULSECHAIN_RPC_URL, e.g. https://rpc.home).
+"""Relays the page's on-chain price lookups to our own PulseChain node (PULSECHAIN_RPC_URL, e.g. https://rpc.home.selphfam.com).
 
 The node only answers its own site (no CORS for other origins), so the page can't call it directly; it asks
 this server instead, and falls back to the public RPCs when this fails. Only the four read-only calls the

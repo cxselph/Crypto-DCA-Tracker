@@ -2,8 +2,8 @@
 
 Authorization code + PKCE as a public client (`crypto-tracker`), so there's no client secret. Home Auth only
 lets the tracker's owner through (its policy names them), and this checks again that the ID token is for the
-Home Auth user in HOME_AUTH_USER. The ID token comes straight from Authelia's token endpoint over TLS checked
-against the Home Auth CA (OIDC_CA_FILE), which OpenID Connect Core 3.1.3.7 accepts in place of checking its
+Home Auth user in HOME_AUTH_USER. The ID token comes straight from Authelia's token endpoint over TLS (Home Auth
+has a public, Let's Encrypt certificate), which OpenID Connect Core 3.1.3.7 accepts in place of checking its
 signature; issuer, audience, expiry and nonce are still checked. The in-progress sign-in (state, nonce, PKCE
 verifier) travels in a signed cookie for 10 minutes. Standard library only.
 """
@@ -36,16 +36,15 @@ class Settings:
     issuer: str
     redirect_uri: str
     client_id: str
-    ca: str
 
     def __post_init__(self):
         self.issuer = (self.issuer or "").strip().rstrip("/")
         self.redirect_uri = (self.redirect_uri or "").strip()
 
 
-def _fetch_json(url, form=None, ca=""):
-    """GET (or POST a form) over TLS checked against the public CAs and the house CA, and return the JSON."""
-    ctx = tls_context(ca)
+def _fetch_json(url, form=None):
+    """GET (or POST a form) over TLS checked against the public CAs, and return the JSON."""
+    ctx = tls_context()
     data = urllib.parse.urlencode(form).encode() if form is not None else None
     req = urllib.request.Request(url, data=data, headers={"Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=15, context=ctx) as r:
@@ -56,7 +55,7 @@ def endpoints(s):
     hit = _discovery.get(s.issuer)
     if hit and time.monotonic() - hit[0] < 3600:
         return hit[1]
-    doc = _fetch_json(s.issuer + "/.well-known/openid-configuration", ca=s.ca)
+    doc = _fetch_json(s.issuer + "/.well-known/openid-configuration")
     if doc.get("issuer") != s.issuer:
         raise RuntimeError(f"discovery says the issuer is {doc.get('issuer')!r}")
     _discovery[s.issuer] = (time.monotonic(), doc)
@@ -100,7 +99,7 @@ def finish(s, flow, query, allowed_user):
     try:
         tokens = _fetch_json(endpoints(s)["token_endpoint"], form={
             "grant_type": "authorization_code", "code": code, "redirect_uri": s.redirect_uri,
-            "client_id": s.client_id, "code_verifier": flow["verifier"]}, ca=s.ca)
+            "client_id": s.client_id, "code_verifier": flow["verifier"]})
         payload = tokens["id_token"].split(".")[1]
         claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
     except Exception:

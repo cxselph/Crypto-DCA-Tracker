@@ -49,14 +49,14 @@ def check_call(raw):
     return to, data.lower()
 
 
-def relay(raw, url, ca=""):
+def relay(raw, url):
     """Sends an allowed eth_call to the node and returns its JSON-RPC answer (a dict with result or error)."""
     if not url:
         raise RelayError(503, "No PulseChain node set (PULSECHAIN_RPC_URL)")
     to, data = check_call(raw)
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_call", "params": [{"to": to, "data": data}, "latest"]})
     req = urllib.request.Request(url, data=body.encode(), headers={"Content-Type": "application/json"})
-    ctx = tls_context(ca)
+    ctx = tls_context()
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS, context=ctx) as r:
             answer = json.loads(r.read(64 * 1024))

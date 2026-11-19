@@ -54,11 +54,10 @@ class Config:
         self.home_auth_user = env.get("HOME_AUTH_USER", "").strip().lower()
         self.oidc = oidc.Settings(
             issuer=env.get("OIDC_ISSUER", ""), redirect_uri=env.get("OIDC_REDIRECT_URI", ""),
-            client_id=env.get("OIDC_CLIENT_ID", "crypto-tracker"), ca=env.get("OIDC_CA_FILE", ""))
+            client_id=env.get("OIDC_CLIENT_ID", "crypto-tracker"))
         self.secret = (env.get("SECRET_KEY") or "").encode() or _stored_secret(self.data_dir)
         # Our own PulseChain node for the on-chain price fallback (pulse_rpc.py); empty = public RPCs only.
         self.pulse_rpc_url = env.get("PULSECHAIN_RPC_URL", "").strip()
-        self.pulse_rpc_ca = env.get("PULSECHAIN_RPC_CA_FILE", "")
 
 
 def _stored_secret(data_dir):
@@ -374,7 +373,7 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if 0 < length <= pulse_rpc.MAX_REQUEST else None
         config = self.app.config
         try:
-            return self._json(200, pulse_rpc.relay(raw, config.pulse_rpc_url, config.pulse_rpc_ca))
+            return self._json(200, pulse_rpc.relay(raw, config.pulse_rpc_url))
         except pulse_rpc.RelayError as e:
             return self._json(e.status, {"error": str(e)})
 

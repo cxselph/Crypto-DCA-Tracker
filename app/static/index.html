@@ -1480,7 +1480,7 @@ function updatePreview() {
     const canStake = existing.unstakedUnits;
     const overStake = quantity > canStake + 1e-12;
     const actual = Math.min(quantity, canStake);
-    html += `<div class="preview-row"><span class="label">${symbol} — current position</span>
+    html += `<div class="preview-row"><span class="label">${escapeHtml(symbol)} — current position</span>
       <span class="value">${fmtNum(existing.totalUnits)} total (${fmtNum(existing.unstakedUnits)} unstaked, ${fmtNum(existing.stakedUnits)} staked)</span></div>`;
     html += `<div class="preview-row"><span class="label">This stake</span>
       <span class="value">Move ${fmtNum(actual)} unstaked → staked</span></div>`;
@@ -1497,7 +1497,7 @@ function updatePreview() {
     const canUnstake = existing.stakedUnits;
     const overUnstake = quantity > canUnstake + 1e-12;
     const actual = Math.min(quantity, canUnstake);
-    html += `<div class="preview-row"><span class="label">${symbol} — current position</span>
+    html += `<div class="preview-row"><span class="label">${escapeHtml(symbol)} — current position</span>
       <span class="value">${fmtNum(existing.totalUnits)} total (${fmtNum(existing.unstakedUnits)} unstaked, ${fmtNum(existing.stakedUnits)} staked)</span></div>`;
     html += `<div class="preview-row"><span class="label">This unstake</span>
       <span class="value">Move ${fmtNum(actual)} staked → unstaked</span></div>`;
@@ -1513,7 +1513,7 @@ function updatePreview() {
   } else if (type === 'sell') {
     if (existing.totalUnits <= 0) {
       panel.className = 'preview empty';
-      panel.innerHTML = `<div class="preview-row"><span class="label">${symbol}</span><span class="value neg">No units held — can't sell.</span></div>`;
+      panel.innerHTML = `<div class="preview-row"><span class="label">${escapeHtml(symbol)}</span><span class="value neg">No units held — can't sell.</span></div>`;
       submitBtn.disabled = true;
       return;
     }
@@ -1526,7 +1526,7 @@ function updatePreview() {
     const remainingUnits = existing.totalUnits - sellQty;
     const remainingCost = existing.totalCost - costRemoved;
 
-    html += `<div class="preview-row"><span class="label">${symbol} — current position</span>
+    html += `<div class="preview-row"><span class="label">${escapeHtml(symbol)} — current position</span>
       <span class="value">${fmtNum(existing.totalUnits)} units @ avg ${fmtUsd(existing.avgCost)} (cost ${fmtUsd(existing.totalCost)})</span></div>`;
     html += `<div class="preview-row"><span class="label">This sale</span>
       <span class="value">−${fmtNum(sellQty)} units @ ${fmtUsd(pricePerUnit)} (proceeds ${fmtUsd(proceeds)})</span></div>`;
@@ -1548,7 +1548,7 @@ function updatePreview() {
     const newAvg = newTotalCost / newTotalUnits;
 
     if (existing.entryCount > 0 && existing.totalUnits > 0) {
-      html += `<div class="preview-row"><span class="label">${symbol} — current position</span>
+      html += `<div class="preview-row"><span class="label">${escapeHtml(symbol)} — current position</span>
         <span class="value">${fmtNum(existing.totalUnits)} units @ avg ${fmtUsd(existing.avgCost)} (cost ${fmtUsd(existing.totalCost)})</span></div>`;
       html += `<div class="preview-row"><span class="label">This purchase</span>
         <span class="value">+${fmtNum(quantity)} units @ ${fmtUsd(pricePerUnit)} (cost ${fmtUsd(newCost)})</span></div>`;
@@ -1561,7 +1561,7 @@ function updatePreview() {
       html += `<div class="preview-row"><span class="label">Change in avg</span>
         <span class="value ${cls}">${arrow} ${fmtUsd(Math.abs(diff))} (${fmtPct(pct)})</span></div>`;
     } else {
-      html += `<div class="preview-row"><span class="label">First buy for ${symbol}</span>
+      html += `<div class="preview-row"><span class="label">First buy for ${escapeHtml(symbol)}</span>
         <span class="value">${fmtNum(quantity)} units @ ${fmtUsd(pricePerUnit)}</span></div>`;
       html += `<div class="preview-row"><span class="label">Starting average</span>
         <span class="value highlight">${fmtUsd(newAvg)}</span></div>`;
@@ -1577,7 +1577,7 @@ function updatePreview() {
   const linked = store.tokens[symbol];
   const linkStatus = $('link-status');
   if (linked) {
-    linkStatus.innerHTML = `<span class="pill">Linked: ${linked.chainId} · ${linked.displayName || ''}</span>`;
+    linkStatus.innerHTML = `<span class="pill">Linked: ${escapeHtml(linked.chainId)} · ${escapeHtml(linked.displayName || '')}</span>`;
   } else {
     linkStatus.innerHTML = `<span class="pill">Not yet linked to DexScreener</span>`;
   }
@@ -1606,7 +1606,7 @@ function renderSymbolList() {
   list.innerHTML = [...symbols].sort().map(s => {
     const t = store.tokens[s];
     const label = t ? `${t.chainId}${t.displayName ? ' · ' + t.displayName : ''}` : 'unlinked';
-    return `<option value="${s}" label="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
+    return `<option value="${escapeHtml(s)}" label="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
   }).join('');
 }
 
@@ -1776,7 +1776,7 @@ async function doSearch(query) {
     filtered.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
     renderResults(filtered.slice(0, 12), target);
   } catch (e) {
-    target.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
+    target.innerHTML = `<div class="empty-state">Error: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1789,13 +1789,13 @@ async function doAddressLookup() {
   try {
     const pairs = await dsTokenPairs(chain, addr);
     if (!pairs.length) {
-      target.innerHTML = '<div class="empty-state">No pairs found for that address on ' + chain + '.</div>';
+      target.innerHTML = '<div class="empty-state">No pairs found for that address on ' + escapeHtml(chain) + '.</div>';
       return;
     }
     pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
     renderResults(pairs.slice(0, 12), target);
   } catch (e) {
-    target.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
+    target.innerHTML = `<div class="empty-state">Error: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1824,9 +1824,9 @@ function renderResults(pairs, target) {
     const vol = p.volume?.h24 || 0;
     const price = p.priceUsd ? parseFloat(p.priceUsd) : null;
     row.innerHTML = `
-      <span class="chain-badge">${p.chainId || '?'}</span>
+      <span class="chain-badge">${escapeHtml(p.chainId || '?')}</span>
       <div class="result-main">
-        <div class="result-pair">${base} / ${quote} <span class="muted" style="font-weight:400;">· ${dex}</span></div>
+        <div class="result-pair">${escapeHtml(base)} / ${escapeHtml(quote)} <span class="muted" style="font-weight:400;">· ${escapeHtml(dex)}</span></div>
         <div class="result-meta">Liquidity ${fmtUsd(liq)} · 24h vol ${fmtUsd(vol)}</div>
       </div>
       <div class="result-price">
@@ -1872,11 +1872,11 @@ function showSelectConfirmation(pair, container) {
     <div class="result-hint">Confirm the label you want to save this pair under.</div>
     <div class="confirm-panel">
       <div class="confirm-row">
-        <span class="chain-badge">${pair.chainId || '?'}</span>
+        <span class="chain-badge">${escapeHtml(pair.chainId || '?')}</span>
         <div>
-          <div class="result-pair">${base} / ${quote} <span class="muted" style="font-weight:400;">· ${dex}</span></div>
+          <div class="result-pair">${escapeHtml(base)} / ${escapeHtml(quote)} <span class="muted" style="font-weight:400;">· ${escapeHtml(dex)}</span></div>
           <div class="result-meta">Liquidity ${fmtUsd(pair.liquidity?.usd || 0)} · price ${fmtUsd(pair.priceUsd ? parseFloat(pair.priceUsd) : null)}</div>
-          <div class="result-meta" style="font-family: monospace; font-size: 11px; word-break: break-all;">${pair.baseToken?.address || ''}</div>
+          <div class="result-meta" style="font-family: monospace; font-size: 11px; word-break: break-all;">${escapeHtml(pair.baseToken?.address || '')}</div>
         </div>
       </div>
 
@@ -1905,11 +1905,11 @@ function showSelectConfirmation(pair, container) {
     if (!lbl) { warn.textContent = 'Label cannot be empty.'; warn.style.color = 'var(--danger)'; return; }
     const existing = store.tokens[lbl];
     if (existing && existing.pairAddress !== pair.pairAddress) {
-      warn.innerHTML = `⚠ <strong>${lbl}</strong> is already linked to <strong>${existing.chainId}</strong> (${existing.displayName || ''}). Saving will overwrite that mapping.`;
+      warn.innerHTML = `⚠ <strong>${escapeHtml(lbl)}</strong> is already linked to <strong>${escapeHtml(existing.chainId)}</strong> (${escapeHtml(existing.displayName || '')}). Saving will overwrite that mapping.`;
       warn.style.color = 'var(--warn)';
     } else if (lbl !== (currentLookupSymbol || '').toUpperCase() && [...new Set(store.ledger.map(e => e.symbol))].includes(currentLookupSymbol) && currentLookupSymbol) {
       const count = store.ledger.filter(e => e.symbol === currentLookupSymbol).length;
-      warn.innerHTML = `ℹ Renaming will also migrate <strong>${count}</strong> existing ledger ${count === 1 ? 'entry' : 'entries'} from <strong>${currentLookupSymbol}</strong> → <strong>${lbl}</strong>.`;
+      warn.innerHTML = `ℹ Renaming will also migrate <strong>${count}</strong> existing ledger ${count === 1 ? 'entry' : 'entries'} from <strong>${escapeHtml(currentLookupSymbol)}</strong> → <strong>${escapeHtml(lbl)}</strong>.`;
       warn.style.color = 'var(--muted)';
     } else {
       warn.textContent = '';
@@ -2188,11 +2188,11 @@ function renderDashboard() {
     const unrCls = unrealized == null ? 'muted' : (unrealized >= 0 ? 'pos' : 'neg');
     const realCls = (p.realizedPL || 0) === 0 ? 'muted' : ((p.realizedPL || 0) >= 0 ? 'pos' : 'neg');
     const linkBtn = link
-      ? `<button class="secondary icon" data-action="relink" data-symbol="${p.symbol}" title="Re-link ${p.symbol} to a different DexScreener pair">🔗</button>`
-      : `<button class="icon" data-action="link" data-symbol="${p.symbol}">Link</button>`;
+      ? `<button class="secondary icon" data-action="relink" data-symbol="${escapeHtml(p.symbol)}" title="Re-link ${escapeHtml(p.symbol)} to a different DexScreener pair">🔗</button>`
+      : `<button class="icon" data-action="link" data-symbol="${escapeHtml(p.symbol)}">Link</button>`;
 
     return `<tr>
-      <td><strong>${p.symbol}</strong>${link ? `<div style="margin-top:2px;"><span class="chain-badge" style="font-size:10px;">${link.chainId}</span></div>` : ''}</td>
+      <td><strong>${escapeHtml(p.symbol)}</strong>${link ? `<div style="margin-top:2px;"><span class="chain-badge" style="font-size:10px;">${escapeHtml(link.chainId)}</span></div>` : ''}</td>
       <td class="num">${fmtUnitsCell(p.unstakedUnits)}</td>
       <td class="num">${fmtUnitsCell(p.stakedUnits)}</td>
       <td class="num"><strong>${fmtUnitsCell(p.totalUnits)}</strong></td>
@@ -2286,7 +2286,7 @@ function renderLedger() {
   const symbols = [...symbolSet].sort();
   const currentValue = filter.value;
   filter.innerHTML = '<option value="">All symbols</option>' +
-    symbols.map(s => `<option value="${s}" ${s === currentValue ? 'selected' : ''}>${s}</option>`).join('');
+    symbols.map(s => `<option value="${escapeHtml(s)}" ${s === currentValue ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('');
 
   const entries = store.ledger
     .filter(e => !currentValue || e.symbol === currentValue || e.symbolB === currentValue)
